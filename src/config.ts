@@ -14,18 +14,14 @@ export const MusubiConfigSchema = Type.Object(
       {
         baseUrl: Type.String({ format: "uri" }),
         token: Type.String(),
-        requestTimeoutMs: Type.Optional(
-          Type.Number({ minimum: 1000, maximum: 120_000 }),
-        ),
+        requestTimeoutMs: Type.Optional(Type.Number({ minimum: 1000, maximum: 120_000 })),
       },
       { additionalProperties: false },
     ),
     presence: Type.Object(
       {
         defaultId: Type.String(),
-        perAgent: Type.Optional(
-          Type.Record(Type.String(), Type.String()),
-        ),
+        perAgent: Type.Optional(Type.Record(Type.String(), Type.String())),
       },
       { additionalProperties: false },
     ),
@@ -63,9 +59,7 @@ export const MusubiConfigSchema = Type.Object(
           reconnect: Type.Optional(
             Type.Object(
               {
-                maxBackoffMs: Type.Optional(
-                  Type.Number({ minimum: 1000, maximum: 600_000 }),
-                ),
+                maxBackoffMs: Type.Optional(Type.Number({ minimum: 1000, maximum: 600_000 })),
               },
               { additionalProperties: false },
             ),
