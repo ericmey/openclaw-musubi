@@ -10,6 +10,10 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- Schema parity test (`tests/schema-parity.test.ts`) that asserts
+  `src/config.ts` (TypeBox) and `openclaw.plugin.json` (JSON Schema) agree
+  on top-level keys, leaf types, enum members, and numeric bounds.
+  Drift surfaces as a CI failure with a path-scoped error message.
 - Initial repository scaffold: package manifest, TypeScript config, lint,
   test, and format tooling.
 - Plugin manifest (`openclaw.plugin.json`) declaring config schema and UI
