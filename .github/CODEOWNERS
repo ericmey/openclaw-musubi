@@ -1,0 +1,7 @@
+# Default owners for everything in the repo.
+*       @ericmey
+
+# Architecture decisions and contract docs require owner review.
+/docs/decisions/   @ericmey
+/docs/api-contract.md   @ericmey
+/openclaw.plugin.json   @ericmey

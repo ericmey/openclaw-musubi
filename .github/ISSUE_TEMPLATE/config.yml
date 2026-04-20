@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/ericmey/openclaw-musubi/discussions
+    about: Open-ended questions, design discussion, or anything that does not fit a bug/feature/slice template.
+  - name: Security vulnerability
+    url: https://github.com/ericmey/openclaw-musubi/security/policy
+    about: Report privately per SECURITY.md. Do not open a public issue.
