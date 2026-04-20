@@ -1,0 +1,83 @@
+{
+  "name": "openclaw-musubi",
+  "version": "0.0.1",
+  "description": "Musubi memory plane for OpenClaw agents — episodic capture, curated knowledge, and presence-to-presence thoughts with authority-weighted prompt supplements.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Eric Mey <eric.mey@salesai.com>",
+  "homepage": "https://github.com/ericmey/openclaw-musubi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericmey/openclaw-musubi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ericmey/openclaw-musubi/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "musubi",
+    "memory",
+    "ai-agents",
+    "plugin",
+    "rag",
+    "sse",
+    "cross-modality"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "src",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.49"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.10"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "^2026.4.19-beta.1",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "install": {
+      "npmSpec": "openclaw-musubi",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.4.10"
+    },
+    "compat": {
+      "pluginApi": ">=2026.4.19-beta.1"
+    },
+    "build": {
+      "openclawVersion": "2026.4.19-beta.1"
+    },
+    "release": {
+      "publishToClawHub": true,
+      "publishToNpm": true
+    }
+  }
+}

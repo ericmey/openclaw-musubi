@@ -1,0 +1,151 @@
+{
+  "id": "musubi",
+  "name": "Musubi Memory",
+  "description": "Connect OpenClaw agents to a Musubi memory core. Episodic capture mirroring, curated + concept recall via memory supplements, and presence-to-presence thought delivery over SSE.",
+  "homepage": "https://github.com/ericmey/openclaw-musubi",
+  "author": "Eric Mey",
+  "uiHints": {
+    "core.baseUrl": {
+      "label": "Musubi Core URL",
+      "placeholder": "https://musubi.example.internal",
+      "help": "Base URL of your Musubi core service. Plugin talks to this over HTTPS."
+    },
+    "core.token": {
+      "label": "Bearer Token",
+      "sensitive": true,
+      "placeholder": "mbi_...",
+      "help": "Bearer token issued by Musubi. Scope must include the presence(s) this plugin represents."
+    },
+    "presence.defaultId": {
+      "label": "Default Presence",
+      "placeholder": "eric/openclaw",
+      "help": "Presence identifier used when no per-agent presence mapping is provided. Shape: <owner>/<presence>."
+    },
+    "presence.perAgent": {
+      "label": "Per-Agent Presence Map",
+      "advanced": true,
+      "help": "Map OpenClaw agent ids to Musubi presences. Shape: {\"aoi\": \"eric/aoi\", \"rin\": \"eric/rin\"}."
+    },
+    "supplement.enabled": {
+      "label": "Prompt + Corpus Supplement",
+      "help": "When enabled, Musubi curated + concept results are blended into memory prompt assembly with authority labels."
+    },
+    "supplement.planes": {
+      "label": "Supplement Planes",
+      "advanced": true,
+      "help": "Which Musubi planes contribute to the memory supplement. Default: curated, concept."
+    },
+    "supplement.maxResults": {
+      "label": "Supplement Result Cap",
+      "advanced": true,
+      "placeholder": "5",
+      "help": "Max results injected per memory turn. Keep small — prompt budget is limited."
+    },
+    "capture.mirrorOpenClawMemory": {
+      "label": "Mirror OpenClaw Memory Writes",
+      "help": "Hook OpenClaw's native memory write events and mirror them into Musubi episodic. Gives cross-modality continuity without replacing the native memory engine."
+    },
+    "thoughts.enabled": {
+      "label": "Thought Delivery",
+      "help": "Subscribe to the Musubi thoughts SSE stream for this presence. Surfaces inbound thoughts from other presences (Claude Code, LiveKit, etc.)."
+    },
+    "thoughts.reconnect.maxBackoffMs": {
+      "label": "Thought Reconnect Max Backoff",
+      "advanced": true,
+      "placeholder": "30000",
+      "help": "Maximum exponential backoff between SSE reconnect attempts."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "core": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "token": {
+            "type": "string"
+          },
+          "requestTimeoutMs": {
+            "type": "number",
+            "minimum": 1000,
+            "maximum": 120000
+          }
+        },
+        "required": ["baseUrl", "token"]
+      },
+      "presence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "defaultId": {
+            "type": "string"
+          },
+          "perAgent": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["defaultId"]
+      },
+      "supplement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "planes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["curated", "concept", "episodic", "artifact"]
+            }
+          },
+          "maxResults": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "capture": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mirrorOpenClawMemory": {
+            "type": "boolean"
+          }
+        }
+      },
+      "thoughts": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "reconnect": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "maxBackoffMs": {
+                "type": "number",
+                "minimum": 1000,
+                "maximum": 600000
+              }
+            }
+          }
+        }
+      }
+    },
+    "required": ["core", "presence"]
+  }
+}
