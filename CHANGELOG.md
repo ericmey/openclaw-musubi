@@ -10,6 +10,19 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `createThoughtStream({ config, ... })` in `src/thoughts/stream.ts` — SSE
+  consumer for `GET /v1/thoughts/stream` with all six consumer-expectation
+  rules: exponential backoff with jitter, persisted `Last-Event-ID`,
+  bounded dedup set, 403 no-reconnect, 60s ping-gap timeout, lex string
+  comparison for object ids. Zero-dep SSE frame parser. Injectable fetch,
+  dedup, persistence, random, sleep, now — fully deterministic tests.
+- `BoundedDedupSet` in `src/thoughts/dedup.ts` — max-size + TTL bounded
+  `Map`-backed dedup with insertion-order eviction.
+- `InMemoryLastEventIdStore` + `LastEventIdStore` interface in
+  `src/thoughts/persistence.ts` — production consumers inject a
+  runtime-backed implementation.
+- `nextSseBackoffMs` in `src/thoughts/backoff.ts` — pure helper matching
+  the spec formula: `min(2^n * 1000ms + rand(0, 1000ms), 60s)`.
 - `createCaptureMirror({ client, config, logger })` in `src/capture/mirror.ts`
   exposes `handleEvent` / `handleBatch` for the wiring slice to register
   via OpenClaw's `agent_end` hook (the established pattern from
