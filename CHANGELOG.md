@@ -10,6 +10,13 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `createPromptSupplement({ client, config })` in `src/supplement/prompt.ts`
+  returns an OpenClaw `MemoryPromptSectionBuilder`-shaped object plus an
+  out-of-band `refresh()` method. Builder is **synchronous** (per OpenClaw
+  contract) and reads from a pre-warmed cache; HTTP I/O lives in `refresh`.
+  Stale cache survives transient core failures so prompts don't suddenly
+  go empty mid-deploy. Per-plane labeled sections give the model the
+  provenance signal it needs (curated > concept).
 - `createCorpusSupplement({ client, config })` in `src/supplement/corpus.ts`
   returns an OpenClaw `MemoryCorpusSupplement`-shaped object. `search`
   POSTs `/v1/retrieve` in fast mode with configured planes (default
