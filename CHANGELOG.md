@@ -10,6 +10,14 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `resolvePresence(config, options)` in `src/presence/resolver.ts` returns
+  a typed `PresenceContext` (presence, token, namespace hints) for any
+  Musubi-bound operation. Honors shared mode, per-agent presence mapping,
+  per-agent tokens with graceful fallback, strict mode, and `${ENV_VAR}`
+  substitution. Typed `PresenceResolutionError` with `code` and `agentId`.
+- `core.perAgentTokens` added to plugin config schema (both TypeBox and
+  the manifest's JSON Schema) — maps agent ids to dedicated bearer tokens
+  per ADR-0003.
 - Schema parity test (`tests/schema-parity.test.ts`) that asserts
   `src/config.ts` (TypeBox) and `openclaw.plugin.json` (JSON Schema) agree
   on top-level keys, leaf types, enum members, and numeric bounds.

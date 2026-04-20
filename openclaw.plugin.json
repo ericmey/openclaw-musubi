@@ -16,6 +16,12 @@
       "placeholder": "mbi_...",
       "help": "Bearer token issued by Musubi. Scope must include the presence(s) this plugin represents."
     },
+    "core.perAgentTokens": {
+      "label": "Per-Agent Tokens",
+      "sensitive": true,
+      "advanced": true,
+      "help": "Map OpenClaw agent ids to dedicated Musubi bearer tokens. Used in per-agent presence mode to keep each agent's identity isolated. Shape: {\"aoi\": \"${MUSUBI_TOKEN_AOI}\"}."
+    },
     "presence.defaultId": {
       "label": "Default Presence",
       "placeholder": "eric/openclaw",
@@ -75,6 +81,12 @@
             "type": "number",
             "minimum": 1000,
             "maximum": 120000
+          },
+          "perAgentTokens": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "required": ["baseUrl", "token"]

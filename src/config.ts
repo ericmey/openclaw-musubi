@@ -15,6 +15,7 @@ export const MusubiConfigSchema = Type.Object(
         baseUrl: Type.String({ format: "uri" }),
         token: Type.String(),
         requestTimeoutMs: Type.Optional(Type.Number({ minimum: 1000, maximum: 120_000 })),
+        perAgentTokens: Type.Optional(Type.Record(Type.String(), Type.String())),
       },
       { additionalProperties: false },
     ),
