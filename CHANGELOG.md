@@ -10,6 +10,13 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `createCorpusSupplement({ client, config })` in `src/supplement/corpus.ts`
+  returns an OpenClaw `MemoryCorpusSupplement`-shaped object. `search`
+  POSTs `/v1/retrieve` in fast mode with configured planes (default
+  `[curated, concept]`) and per-presence namespace; `get` fetches by
+  `<plane>/<id>` lookup path. Failures swallowed → empty results so
+  OpenClaw memory search never breaks. Provenance labels per plane
+  let the model weigh curated > concept > episodic naturally.
 - `MusubiClient` in `src/musubi/client.ts` — typed HTTP client over the
   Musubi canonical API. Bearer auth, fresh `X-Request-Id` per call,
   stable `Idempotency-Key` reused across retries on POST writes,
