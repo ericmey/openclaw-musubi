@@ -10,6 +10,18 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `MusubiClient` in `src/musubi/client.ts` — typed HTTP client over the
+  Musubi canonical API. Bearer auth, fresh `X-Request-Id` per call,
+  stable `Idempotency-Key` reused across retries on POST writes,
+  per-request timeout via `AbortController`, exponential-backoff retry
+  on network/5xx, `Retry-After` honored on 429, no retry on 4xx.
+  `fetch` is injectable so tests run with zero new deps.
+- `MusubiError` taxonomy in `src/musubi/errors.ts` — `NetworkError`,
+  `TimeoutError`, `AuthError`, `NotFoundError`, `RateLimitError`,
+  `ClientError`, `ServerError`. Discriminated by `code` and class.
+- `RetryPolicy` + `nextDelayMs` in `src/musubi/retry.ts` —
+  default `min(2^n * 500ms + rand(0, 250ms), 8s)` over up to 5 attempts;
+  RNG injectable for deterministic tests.
 - `resolvePresence(config, options)` in `src/presence/resolver.ts` returns
   a typed `PresenceContext` (presence, token, namespace hints) for any
   Musubi-bound operation. Honors shared mode, per-agent presence mapping,
