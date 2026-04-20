@@ -1,5 +1,4 @@
-import type {
-  MusubiError} from "./errors.js";
+import type { MusubiError } from "./errors.js";
 import {
   AuthError,
   ClientError,
