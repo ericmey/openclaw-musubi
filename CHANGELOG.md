@@ -10,6 +10,17 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `createCaptureMirror({ client, config, logger })` in `src/capture/mirror.ts`
+  exposes `handleEvent` / `handleBatch` for the wiring slice to register
+  via OpenClaw's `agent_end` hook (the established pattern from
+  `extensions/memory-lancedb`). Translates capture-eligible events into
+  Musubi episodic posts (`/v1/episodic` and `/v1/episodic/batch`) with
+  stable per-event idempotency keys (`openclaw-mirror:<id>`). **Failures
+  are logged and swallowed** — never throws back into OpenClaw's caller.
+- `translateCaptureEvent` + `deriveIdempotencyKey` in
+  `src/capture/translate.ts` — pure functions; importance is clamped to
+  `[0, 10]`, timestamp defaults to "now", per-presence namespace from the
+  resolver.
 - `createPromptSupplement({ client, config })` in `src/supplement/prompt.ts`
   returns an OpenClaw `MemoryPromptSectionBuilder`-shaped object plus an
   out-of-band `refresh()` method. Builder is **synchronous** (per OpenClaw
