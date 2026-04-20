@@ -10,6 +10,17 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- Three agent-callable tools in `src/tools/`:
+  - `createRecallTool(...)` → `musubi_recall` — deep-path retrieve across
+    all planes with full hybrid + rerank.
+  - `createRememberTool(...)` → `musubi_remember` — explicit episodic
+    capture at importance 7 (above passive capture's 5), optional
+    client-supplied idempotency key.
+  - `createThinkTool(...)` → `musubi_think` — presence-to-presence
+    thought send; recipient sees it in real-time via the SSE stream.
+  Each factory returns `{ definition, recommendedOptional: true }` — the
+  wiring slice passes `{ optional: true }` to `api.registerTool(...)`.
+- TypeBox parameter schemas in `src/tools/parameters.ts`.
 - `createThoughtStream({ config, ... })` in `src/thoughts/stream.ts` — SSE
   consumer for `GET /v1/thoughts/stream` with all six consumer-expectation
   rules: exponential backoff with jitter, persisted `Last-Event-ID`,
