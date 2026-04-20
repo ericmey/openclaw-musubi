@@ -4,12 +4,15 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@sinclair/typebox': 0.34.49
+
 importers:
 
   .:
     dependencies:
       '@sinclair/typebox':
-        specifier: ^0.34.49
+        specifier: 0.34.49
         version: 0.34.49
     devDependencies:
       '@types/node':

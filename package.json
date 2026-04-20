@@ -60,6 +60,11 @@
     "typescript-eslint": "^8.0.0",
     "vitest": "^4.0.0"
   },
+  "pnpm": {
+    "overrides": {
+      "@sinclair/typebox": "0.34.49"
+    }
+  },
   "openclaw": {
     "extensions": [
       "./src/index.ts"
