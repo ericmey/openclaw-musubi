@@ -22,24 +22,8 @@
 import { FormatRegistry } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
-import { MusubiConfigSchema, type MusubiConfig } from "../config.js";
-
-// Register `format: "uri"` once on module load. The plugin config
-// declares `core.baseUrl` with `format: "uri"` (see `src/config.ts`),
-// but TypeBox's format registry is empty by default — `Value.Check`
-// against an unregistered format throws. A lightweight `new URL()`
-// parse is exactly the shape validation we want.
-if (!FormatRegistry.Has("uri")) {
-  FormatRegistry.Set("uri", (value: string) => {
-    try {
-      void new URL(value);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-}
 import { createCaptureMirror } from "../capture/mirror.js";
+import { MusubiConfigSchema, type MusubiConfig } from "../config.js";
 import { MusubiClient } from "../musubi/client.js";
 import type { FetchLike } from "../musubi/types.js";
 import { createCorpusSupplement } from "../supplement/corpus.js";
@@ -56,18 +40,31 @@ import {
   type Stoppable,
 } from "./lifecycle.js";
 
-/**
- * Minimal structural shape of the pieces of `OpenClawPluginApi` this
- * plugin reaches for. Declared locally so tests can construct a
- * spy object without pulling the full upstream type and all its
- * transitive imports. The real `OpenClawPluginApi` from
- * `openclaw/plugin-sdk/plugin-entry` is a superset of this.
- */
+// Register `format: "uri"` once on module load. The plugin config
+// declares `core.baseUrl` with `format: "uri"` (see `src/config.ts`),
+// but TypeBox's format registry is empty by default — `Value.Check`
+// against an unregistered format throws. A lightweight `new URL()`
+// parse is exactly the shape validation we want.
+if (!FormatRegistry.Has("uri")) {
+  FormatRegistry.Set("uri", (value: string) => {
+    try {
+      void new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
  * Structural subset of `OpenClawPluginApi` this plugin touches.
- * Mirrors the upstream `PluginLogger` (string-only messages, no fields)
- * so tests can spy without depending on the full SDK surface. Structured
- * log fields go through `stringify`-and-concat at the call site.
+ *
+ * Declared locally so tests can spy on a plain object without pulling
+ * the full upstream type (and its transitive imports). The real
+ * `OpenClawPluginApi` from `openclaw/plugin-sdk/plugin-entry` is a
+ * superset of this. Mirrors the upstream `PluginLogger` surface —
+ * string-only messages, no structured fields — so structured log
+ * output is `stringify`-and-concat'd at the call site.
  */
 export type BootstrapPluginApi = {
   readonly logger: {
@@ -134,8 +131,7 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
     client,
     config,
     logger: {
-      warn: (msg, fields) =>
-        api.logger.warn(fields ? `${msg} ${JSON.stringify(fields)}` : msg),
+      warn: (msg, fields) => api.logger.warn(fields ? `${msg} ${JSON.stringify(fields)}` : msg),
       debug: api.logger.debug
         ? (msg, fields) => api.logger.debug!(fields ? `${msg} ${JSON.stringify(fields)}` : msg)
         : undefined,
