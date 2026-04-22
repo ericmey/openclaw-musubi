@@ -10,6 +10,32 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ### Added
 
+- `src/plugin/bootstrap.ts` — wires every subsystem (slices #2–#8) into a
+  single `definePluginEntry` registration: validates the plugin config
+  against the TypeBox schema (failing loud on invalid input), constructs
+  a shared `MusubiClient`, builds the corpus + prompt supplements,
+  capture mirror, three agent tools, and SSE thought stream, and starts
+  the prompt-refresh scheduler + stream consumer. Returns a
+  `LifecycleHandle` so the plugin teardown path can stop both long-lived
+  workers deterministically. Test-injectable scheduler and stream
+  factories keep bootstrap fully unit-testable without real timers.
+- `src/plugin/lifecycle.ts` — small coordinator exposing
+  `createLifecycle(...)` (idempotent `stop()` that tears down scheduler
+  + stream in the right order) and `createIntervalScheduler(...)` (fire
+  an immediate first tick, then poll on an interval with re-entrance
+  guard and error isolation).
+- `src/index.ts` now delegates to `bootstrap(...)` instead of logging a
+  placeholder. First real plugin load. The lifecycle handle is kept at
+  module scope + exposed via `getLifecycle()` for host-side teardown.
+- `docs/architecture/wiring.md` — how the parts compose, scheduler
+  cadence, shutdown order.
+- `@sinclair/typebox` `FormatRegistry` is now primed at bootstrap time
+  with a `uri` validator (thin `new URL(...)` parse) so the
+  `core.baseUrl` schema constraint is enforced at install time instead
+  of crashing `Value.Check` on an unregistered format.
+
+### Added (earlier in this release window)
+
 - Three agent-callable tools in `src/tools/`:
   - `createRecallTool(...)` → `musubi_recall` — deep-path retrieve across
     all planes with full hybrid + rerank.
