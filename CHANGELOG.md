@@ -8,6 +8,20 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-04-22
+
+First tagged release. The plugin is loadable against OpenClaw via `definePluginEntry` and ships the full Musubi integration surface:
+
+- **Episodic capture mirror** — `agent_end` events become `POST /v1/episodic` captures. Failures never block OpenClaw's native memory write.
+- **Memory prompt supplement** — synchronous, cached `MemoryPromptSectionBuilder` with per-plane provenance labels. Background `refresh()` on a 60s interval.
+- **Memory corpus supplement** — agent-queryable `search`/`get` against Musubi's canonical retrieve surface.
+- **Thought-stream SSE consumer** — listens to `GET /v1/thoughts/stream` with all six consumer-expectation rules (jitter-backoff, persisted `Last-Event-ID`, bounded dedup, 403 no-reconnect, 60s ping-gap timeout, lex string object-id comparison).
+- **Three agent tools** — `musubi_recall` (deep-path retrieve), `musubi_remember` (explicit capture at importance 7), `musubi_think` (presence-to-presence thought send).
+- **Presence resolution** — maps OpenClaw agent ids to Musubi presences with per-agent token support.
+- **Typed HTTP client** — retry, idempotency, error taxonomy, per-request timeout.
+
+No runtime integration tests yet — the plugin is "built, not turned on." Load testing + a production cutover live behind the v0.x.y boundary; until then, v0.1.0 is an alpha suitable for sideload + exercise.
+
 ### Added
 
 - `src/plugin/bootstrap.ts` — wires every subsystem (slices #2–#8) into a
