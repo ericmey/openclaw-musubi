@@ -68,10 +68,19 @@ describe("createRememberTool", () => {
     const body = JSON.parse(calls[0]!.body!);
     expect(body.content).toBe("Eric said ship Musubi v2 this quarter.");
     expect(body.importance).toBe(9);
-    expect(body.topics).toEqual(["musubi", "roadmap"]);
+    // `topics` is folded into `tags` at the canonical boundary so the
+    // request matches `POST /v1/memories`'s CaptureRequest shape.
+    expect(body.tags).toEqual(
+      expect.arrayContaining([
+        "musubi",
+        "roadmap",
+        "src:openclaw-agent-remember",
+        "ref:call-1",
+      ]),
+    );
   });
 
-  it("test_remember_posts_to_episodic_with_presence_namespace", async () => {
+  it("test_remember_posts_to_memories_with_presence_namespace", async () => {
     const { fetch, calls } = createMockFetch([{ status: 200, body: { object_id: "stored" } }]);
     const tool = createRememberTool({
       client: makeClient(fetch),
@@ -84,10 +93,12 @@ describe("createRememberTool", () => {
 
     await tool.definition.execute("call", { content: "x" });
 
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic");
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/memories");
     const body = JSON.parse(calls[0]!.body!);
     expect(body.namespace).toBe("eric/aoi/episodic");
-    expect(body.capture_source).toBe("openclaw-agent-remember");
+    // Canonical CaptureRequest has no `capture_source` — it lives in
+    // `tags` as an `src:` prefix now.
+    expect(body.tags).toContain("src:openclaw-agent-remember");
   });
 
   it("test_remember_idempotent_on_client_supplied_id", async () => {

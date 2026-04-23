@@ -83,7 +83,10 @@ describe("createThinkTool", () => {
     const body = JSON.parse(calls[0]!.body!);
     expect(body.from_presence).toBe("eric/aoi");
     expect(body.to_presence).toBe("eric/rin");
-    expect(body.namespace).toBe("eric/aoi");
+    // Canonical ThoughtSendRequest requires a 3-segment namespace
+    // (`tenant/presence/thought`); `from_presence` stays as the
+    // 2-segment presence id the plugin received.
+    expect(body.namespace).toBe("eric/aoi/thought");
     expect(body.content).toBe("pick up the deploy please");
   });
 

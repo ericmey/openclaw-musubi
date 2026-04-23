@@ -3,7 +3,9 @@ import type { MusubiClient } from "../musubi/client.js";
 import { resolvePresence } from "../presence/resolver.js";
 import {
   deriveIdempotencyKey,
+  toCanonicalCapture,
   translateCaptureEvent,
+  type CanonicalCaptureBody,
   type CaptureEvent,
   type EpisodicCapturePayload,
 } from "./translate.js";
@@ -61,8 +63,8 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
       if (payload === undefined) return;
 
       try {
-        await client.post("/v1/episodic", {
-          body: payload,
+        await client.post("/v1/memories", {
+          body: toCanonicalCapture(payload),
           idempotencyKey: deriveIdempotencyKey(event),
         });
       } catch (err) {
@@ -76,28 +78,46 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
     async handleBatch(events: readonly CaptureEvent[]): Promise<void> {
       if (!enabled || events.length === 0) return;
 
-      const payloads: EpisodicCapturePayload[] = [];
-      const idempotencyKeys: string[] = [];
+      // One namespace per batch — the canonical `/v1/memories/batch`
+      // endpoint takes a single top-level `namespace` and a list of
+      // `items` rather than repeating the namespace per row. Group
+      // events by their resolved namespace before dispatching.
+      const byNamespace = new Map<
+        string,
+        { items: CanonicalCaptureBody[]; keys: string[] }
+      >();
       for (const event of events) {
         const payload = translateOrSkip(event, config, now, logger);
         if (payload === undefined) continue;
-        payloads.push(payload);
-        idempotencyKeys.push(deriveIdempotencyKey(event));
+        const canonical = toCanonicalCapture(payload);
+        const bucket = byNamespace.get(canonical.namespace) ?? {
+          items: [],
+          keys: [],
+        };
+        bucket.items.push(canonical);
+        bucket.keys.push(deriveIdempotencyKey(event));
+        byNamespace.set(canonical.namespace, bucket);
       }
-      if (payloads.length === 0) return;
+      if (byNamespace.size === 0) return;
 
-      try {
-        await client.post("/v1/episodic/batch", {
-          body: { items: payloads, idempotency_keys: idempotencyKeys },
-          // The batch endpoint gets its own top-level idempotency key composed
-          // from the per-event keys so retried batches dedup as a unit.
-          idempotencyKey: `batch:${idempotencyKeys.join(",")}`,
-        });
-      } catch (err) {
-        logger.warn("musubi: mirror handleBatch failed; OpenClaw write unaffected", {
-          batch_size: payloads.length,
-          error: errorMessage(err),
-        });
+      for (const [namespace, bucket] of byNamespace) {
+        const items = bucket.items.map((c) => ({
+          content: c.content,
+          importance: c.importance,
+          tags: c.tags,
+        }));
+        try {
+          await client.post("/v1/memories/batch", {
+            body: { namespace, items },
+            idempotencyKey: `batch:${bucket.keys.join(",")}`,
+          });
+        } catch (err) {
+          logger.warn("musubi: mirror handleBatch failed; OpenClaw write unaffected", {
+            namespace,
+            batch_size: bucket.items.length,
+            error: errorMessage(err),
+          });
+        }
       }
     },
   };

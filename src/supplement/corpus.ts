@@ -116,20 +116,59 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
 
       const limit = Math.max(1, Math.min(params.maxResults ?? cap, cap));
 
-      try {
-        const response = await client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-          body: {
-            query_text: params.query,
-            mode: "fast",
-            planes,
-            limit,
-            namespace: presence.presence,
-          },
+      // Canonical retrieve wants a 3-segment `tenant/presence/plane`
+      // namespace and matches it literally against the stored row's
+      // namespace — so a single "cross-plane" call only ever returns
+      // hits from the plane in the request namespace. Fan out one
+      // retrieve call per readable (namespace, plane) target, then
+      // merge. See `src/tools/recall.ts` for the matching pattern.
+      const planeFilter = new Set<string>(planes);
+      const targets: Array<{ namespace: string; plane: string }> = [];
+      for (const ns of presence.namespaces.curatedReadScope) {
+        const plane = ns.split("/").at(-1);
+        if (plane && planeFilter.has(plane)) {
+          targets.push({ namespace: ns, plane });
+        }
+      }
+      if (planeFilter.has("episodic")) {
+        targets.push({
+          namespace: presence.namespaces.episodic,
+          plane: "episodic",
         });
-        return (response.results ?? []).map(toCorpusSearchResult);
-      } catch {
+      }
+
+      // Settled — a single plane failing shouldn't blank the
+      // supplement when the rest succeeded. Dedup by `object_id`
+      // because a row stored in a namespace the presence maps to
+      // twice (e.g. own + shared) would otherwise appear duplicated.
+      const settled = await Promise.allSettled(
+        targets.map((t) =>
+          client.post<MusubiRetrieveResponse>("/v1/retrieve", {
+            body: {
+              namespace: t.namespace,
+              planes: [t.plane],
+              query_text: params.query,
+              mode: "fast",
+              limit,
+            },
+          }),
+        ),
+      );
+      const seen = new Set<string>();
+      const merged: MusubiRetrieveRow[] = [];
+      for (const result of settled) {
+        if (result.status !== "fulfilled") continue;
+        for (const row of result.value.results ?? []) {
+          if (seen.has(row.object_id)) continue;
+          seen.add(row.object_id);
+          merged.push(row);
+        }
+      }
+      if (merged.length === 0 && settled.every((r) => r.status === "rejected")) {
         return [];
       }
+      merged.sort((a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(toCorpusSearchResult);
     },
 
     async get(params) {

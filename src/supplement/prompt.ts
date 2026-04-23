@@ -109,27 +109,64 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
         return;
       }
 
-      try {
-        const response = await client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-          body: {
-            query_text: STANDING_CONTEXT_QUERY,
-            mode: "fast",
-            planes,
-            limit: cap,
-            namespace: presence.presence,
-          },
-        });
-        const next = (response.results ?? []).slice(0, cap).map(
-          (row): StandingContextItem => ({
-            plane: row.plane,
-            content: row.content,
-            source: row.namespace,
-          }),
-        );
-        cache = next;
-      } catch {
-        // Preserve stale cache on transient failure; better than going empty.
+      // Canonical retrieve is scoped per 3-segment namespace; fan
+      // out one call per readable (namespace, plane) target and
+      // merge — matches the pattern in `src/supplement/corpus.ts`
+      // and `src/tools/recall.ts`.
+      const planeFilter = new Set<string>(planes);
+      const targets: Array<{ namespace: string; plane: string }> = [];
+      for (const ns of presence.namespaces.curatedReadScope) {
+        const plane = ns.split("/").at(-1);
+        if (plane && planeFilter.has(plane)) {
+          targets.push({ namespace: ns, plane });
+        }
       }
+      if (planeFilter.has("episodic")) {
+        targets.push({
+          namespace: presence.namespaces.episodic,
+          plane: "episodic",
+        });
+      }
+
+      // Settled — one plane failing shouldn't blank the cache if
+      // the others succeeded. Dedup by `object_id` so a row whose
+      // namespace happens to be reachable through two readable
+      // targets (own + shared) is counted once.
+      const settled = await Promise.allSettled(
+        targets.map((t) =>
+          client.post<MusubiRetrieveResponse>("/v1/retrieve", {
+            body: {
+              namespace: t.namespace,
+              planes: [t.plane],
+              query_text: STANDING_CONTEXT_QUERY,
+              mode: "fast",
+              limit: cap,
+            },
+          }),
+        ),
+      );
+      if (settled.every((r) => r.status === "rejected")) {
+        // Complete failure — preserve stale cache instead of wiping.
+        return;
+      }
+      const seen = new Set<string>();
+      const merged: MusubiRetrieveRow[] = [];
+      for (const result of settled) {
+        if (result.status !== "fulfilled") continue;
+        for (const row of result.value.results ?? []) {
+          if (seen.has(row.object_id)) continue;
+          seen.add(row.object_id);
+          merged.push(row);
+        }
+      }
+      merged.sort((a, b) => b.score - a.score);
+      cache = merged.slice(0, cap).map(
+        (row): StandingContextItem => ({
+          plane: row.plane,
+          content: row.content,
+          source: row.namespace,
+        }),
+      );
     },
 
     __cacheSize() {

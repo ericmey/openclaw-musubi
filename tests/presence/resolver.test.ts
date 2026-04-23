@@ -134,6 +134,7 @@ describe("resolvePresence", () => {
       token: "default-token",
       namespaces: {
         episodic: "eric/aoi/episodic",
+        thought: "eric/aoi/thought",
         curatedReadScope: ["eric/aoi/curated", "eric/_shared/curated", "eric/_shared/concept"],
       },
     });

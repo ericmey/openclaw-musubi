@@ -72,28 +72,77 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
         }
 
         const limit = params.limit ?? DEFAULT_LIMIT;
-        const planes = params.planes ?? ["curated", "concept", "episodic", "artifact"];
-
-        try {
-          const response = await client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-            body: {
-              query_text: params.query,
-              mode: "deep",
-              planes,
-              limit,
-              namespace: presence.presence,
-            },
-          });
-
-          const results = response.results ?? [];
-          if (results.length === 0) {
-            return toolText(`No Musubi results for "${params.query}".`);
-          }
-
-          return toolText(formatResults(results));
-        } catch (err) {
-          return toolError(`Musubi recall failed: ${errorMessage(err)}`);
+        // Canonical `/v1/retrieve` requires a 3-segment namespace
+        // (`tenant/presence/plane`) and the `planes` field is a
+        // collection fanout whose payload filter uses that literal
+        // namespace. That means a single cross-plane call can only
+        // surface hits whose stored namespace equals the request
+        // namespace — hits in sibling planes never match. Plugin
+        // workaround: one retrieve per readable (namespace, plane)
+        // pair, merged client-side. See openclaw-musubi fix notes
+        // for the Musubi #207 follow-up that would let us collapse
+        // this back to one call.
+        const targets: Array<{ namespace: string; plane: string }> = [];
+        for (const ns of presence.namespaces.curatedReadScope) {
+          const plane = ns.split("/").at(-1);
+          if (plane) targets.push({ namespace: ns, plane });
         }
+        // Episodic last — curated/concept are higher-signal, so any
+        // dedup-by-object-id favours the curated row on ties.
+        targets.push({ namespace: presence.namespaces.episodic, plane: "episodic" });
+
+        // Optional plane filter from the caller. The `artifact` plane
+        // is excluded by default because the live server's artifact
+        // collection is missing the sparse vector config today
+        // (Musubi #208); including it returns a 500. Callers can
+        // still pass `planes: ["artifact"]` explicitly once that's
+        // fixed upstream.
+        const planeFilter = params.planes
+          ? new Set<string>(params.planes)
+          : undefined;
+        const selected = planeFilter
+          ? targets.filter((t) => planeFilter.has(t.plane))
+          : targets;
+
+        // Settled — one plane erroring shouldn't blank the recall
+        // if others succeeded. Dedup by `object_id` so the same row
+        // reachable through two namespaces (own + shared) doesn't
+        // appear twice.
+        const settled = await Promise.allSettled(
+          selected.map((t) =>
+            client.post<MusubiRetrieveResponse>("/v1/retrieve", {
+              body: {
+                namespace: t.namespace,
+                planes: [t.plane],
+                query_text: params.query,
+                mode: "deep",
+                limit,
+              },
+            }),
+          ),
+        );
+        if (settled.every((r) => r.status === "rejected")) {
+          const firstErr = settled[0]!.status === "rejected"
+            ? (settled[0] as PromiseRejectedResult).reason
+            : new Error("unknown");
+          return toolError(`Musubi recall failed: ${errorMessage(firstErr)}`);
+        }
+        const seen = new Set<string>();
+        const merged: MusubiRetrieveRow[] = [];
+        for (const result of settled) {
+          if (result.status !== "fulfilled") continue;
+          for (const row of result.value.results ?? []) {
+            if (seen.has(row.object_id)) continue;
+            seen.add(row.object_id);
+            merged.push(row);
+          }
+        }
+        merged.sort((a, b) => b.score - a.score);
+        const results = merged.slice(0, limit);
+        if (results.length === 0) {
+          return toolText(`No Musubi results for "${params.query}".`);
+        }
+        return toolText(formatResults(results));
       },
     },
   };

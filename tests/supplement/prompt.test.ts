@@ -249,6 +249,13 @@ describe("createPromptSupplement", () => {
 
     await supplement.refresh({ agentId: "aoi" });
 
-    expect(JSON.parse(bodies[0]!).namespace).toBe("eric/aoi");
+    // Canonical retrieve is scoped per 3-segment namespace; every
+    // per-plane call routes through the agent's presence prefix or
+    // the shared pool.
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      const ns: string = JSON.parse(body!).namespace;
+      expect(ns.startsWith("eric/aoi/") || ns.startsWith("eric/_shared/")).toBe(true);
+    }
   });
 });

@@ -64,25 +64,40 @@ describe("createRecallTool", () => {
   });
 
   it("test_recall_accepts_plane_filter_and_limit_parameters", async () => {
-    const { fetch, calls } = createMockFetch([
-      { status: 200, body: { results: [] } },
-      { status: 200, body: { results: [] } },
-    ]);
+    // Canonical retrieve requires one call per (namespace, plane)
+    // target (see `src/tools/recall.ts`). The mock returns the last
+    // scripted response for overflow calls, so a single `{results: []}`
+    // covers every fanout call.
+    const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [] } }]);
     const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
 
     await tool.definition.execute("c1", { query: "x", planes: ["curated"], limit: 3 });
-    await tool.definition.execute("c2", { query: "x" });
+    const curatedOnly = calls.splice(0, calls.length);
+    // `planes: ["curated"]` → fans out across every readable
+    // namespace whose trailing segment is `curated`. The presence
+    // resolver exposes both a per-presence curated and a shared pool,
+    // so expect multiple calls, all scoped to the curated plane with
+    // the caller-supplied limit.
+    expect(curatedOnly.length).toBeGreaterThan(0);
+    for (const call of curatedOnly) {
+      const body = JSON.parse(call.body!);
+      expect(body.planes).toEqual(["curated"]);
+      expect(body.limit).toBe(3);
+    }
 
-    expect(JSON.parse(calls[0]!.body!).planes).toEqual(["curated"]);
-    expect(JSON.parse(calls[0]!.body!).limit).toBe(3);
-    // Default when unspecified: all four planes, limit 10.
-    expect(JSON.parse(calls[1]!.body!).planes).toEqual([
-      "curated",
-      "concept",
-      "episodic",
-      "artifact",
-    ]);
-    expect(JSON.parse(calls[1]!.body!).limit).toBe(10);
+    await tool.definition.execute("c2", { query: "x" });
+    // Default: no plane filter → fan out across every readable
+    // (namespace, plane) pair the presence grants. `makeConfig()`'s
+    // default presence resolves to 3 readable namespaces + the
+    // per-presence episodic, so fanout is curated/concept/episodic.
+    // Each call carries its single-plane `planes: [<plane>]` array.
+    const defaultFanout = calls;
+    expect(defaultFanout.length).toBeGreaterThan(1);
+    for (const call of defaultFanout) {
+      const body = JSON.parse(call.body!);
+      expect(body.planes).toHaveLength(1);
+      expect(body.limit).toBe(10);
+    }
   });
 
   it("test_recall_returns_shaped_content_for_agent_consumption", async () => {
@@ -136,7 +151,14 @@ describe("createRecallTool", () => {
 
     await tool.definition.execute("c", { query: "x" });
 
-    expect(JSON.parse(calls[0]!.body!).namespace).toBe("eric/aoi");
+    // Canonical retrieve needs a 3-segment `tenant/presence/plane`
+    // namespace; every call must be scoped to the agent's presence
+    // prefix. We assert on the prefix rather than the exact full
+    // namespace because the fanout hits multiple planes.
+    for (const call of calls) {
+      const ns: string = JSON.parse(call.body!).namespace;
+      expect(ns.startsWith("eric/aoi/") || ns.startsWith("eric/_shared/")).toBe(true);
+    }
   });
 
   it("returns friendly message on zero results", async () => {
