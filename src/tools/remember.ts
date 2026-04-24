@@ -85,6 +85,7 @@ export function createRememberTool(options: CreateRememberToolOptions): Remember
               ],
             },
             idempotencyKey,
+            token: presence.token,
           });
 
           const storedId = response?.object_id ?? "(no id)";

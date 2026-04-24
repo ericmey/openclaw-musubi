@@ -69,6 +69,7 @@ export function createThinkTool(options: CreateThinkToolOptions): ThinkTool {
               channel: params.channel ?? DEFAULT_CHANNEL,
               importance: params.importance ?? DEFAULT_IMPORTANCE,
             },
+            token: presence.token,
           });
 
           const storedId = response?.object_id ?? "(no id)";

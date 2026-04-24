@@ -1,6 +1,6 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
-import { resolvePresence } from "../presence/resolver.js";
+import { resolvePresence, type PresenceContext } from "../presence/resolver.js";
 import {
   deriveIdempotencyKey,
   toCanonicalCapture,
@@ -59,13 +59,15 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
     async handleEvent(event: CaptureEvent): Promise<void> {
       if (!enabled) return;
 
-      const payload = translateOrSkip(event, config, now, logger);
-      if (payload === undefined) return;
+      const resolved = resolveOrSkip(event, config, logger);
+      if (resolved === undefined) return;
+      const { presence, payload } = resolved;
 
       try {
         await client.post("/v1/memories", {
           body: toCanonicalCapture(payload),
           idempotencyKey: deriveIdempotencyKey(event),
+          token: presence.token,
         });
       } catch (err) {
         logger.warn("musubi: mirror handleEvent failed; OpenClaw write unaffected", {
@@ -81,18 +83,20 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
       // One namespace per batch — the canonical `/v1/memories/batch`
       // endpoint takes a single top-level `namespace` and a list of
       // `items` rather than repeating the namespace per row. Group
-      // events by their resolved namespace before dispatching.
+      // events by their resolved namespace (and token) before dispatching.
       const byNamespace = new Map<
         string,
-        { items: CanonicalCaptureBody[]; keys: string[] }
+        { items: CanonicalCaptureBody[]; keys: string[]; token: string }
       >();
       for (const event of events) {
-        const payload = translateOrSkip(event, config, now, logger);
-        if (payload === undefined) continue;
+        const resolved = resolveOrSkip(event, config, logger);
+        if (resolved === undefined) continue;
+        const { presence, payload } = resolved;
         const canonical = toCanonicalCapture(payload);
         const bucket = byNamespace.get(canonical.namespace) ?? {
           items: [],
           keys: [],
+          token: presence.token,
         };
         bucket.items.push(canonical);
         bucket.keys.push(deriveIdempotencyKey(event));
@@ -110,6 +114,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
           await client.post("/v1/memories/batch", {
             body: { namespace, items },
             idempotencyKey: `batch:${bucket.keys.join(",")}`,
+            token: bucket.token,
           });
         } catch (err) {
           logger.warn("musubi: mirror handleBatch failed; OpenClaw write unaffected", {
@@ -123,12 +128,16 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
   };
 }
 
-function translateOrSkip(
+function resolveOrSkip(
   event: CaptureEvent,
   config: MusubiConfig,
-  now: () => Date,
   logger: MirrorLogger,
-): EpisodicCapturePayload | undefined {
+):
+  | {
+      presence: PresenceContext;
+      payload: EpisodicCapturePayload;
+    }
+  | undefined {
   if (!event.content || event.content.length === 0) return undefined;
 
   let presence;
@@ -142,7 +151,8 @@ function translateOrSkip(
     return undefined;
   }
 
-  return translateCaptureEvent(event, presence, now);
+  const payload = translateCaptureEvent(event, presence, () => new Date());
+  return { presence, payload };
 }
 
 function errorMessage(err: unknown): string {

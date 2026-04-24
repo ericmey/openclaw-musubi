@@ -298,7 +298,9 @@ describe("createCorpusSupplement", () => {
 
     const result = await supplement.get({ lookup: "curated/abc" });
 
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/curated/abc");
+    expect(calls[0]?.url).toBe(
+      "https://musubi.test/v1/curated/abc?namespace=eric%2Fopenclaw%2Fcurated",
+    );
     expect(result?.title).toBe("Note");
     expect(result?.content).toBe("line one\nline two");
     expect(result?.lineCount).toBe(2);

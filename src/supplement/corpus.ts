@@ -151,6 +151,7 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
               mode: "fast",
               limit,
             },
+            token: presence.token,
           }),
         ),
       );
@@ -177,8 +178,9 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
       const [plane, id] = splitLookup(params.lookup);
       if (plane === undefined || id === undefined) return null;
 
+      let presence;
       try {
-        resolvePresence(config, { agentId: params.agentSessionKey });
+        presence = resolvePresence(config, { agentId: params.agentSessionKey });
       } catch {
         return null;
       }
@@ -186,8 +188,19 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
       const path = endpointForPlane(plane, id);
       if (path === undefined) return null;
 
+      // Derive the correct namespace for the ?namespace= query param.
+      const ns =
+        plane === "episodic"
+          ? presence.namespaces.episodic
+          : plane === "thought"
+            ? presence.namespaces.thought
+            : presence.namespaces.curatedReadScope.find((n) => n.endsWith(`/${plane}`)) ??
+              presence.namespaces.episodic;
+
       try {
-        const obj = await client.get<MusubiObjectFetchResponse>(path);
+        const obj = await client.getWithQuery<MusubiObjectFetchResponse>(path, {
+          namespace: ns,
+        });
         return toCorpusGetResult(obj, plane, params.lookup);
       } catch {
         return null;

@@ -142,6 +142,7 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
               mode: "fast",
               limit: cap,
             },
+            token: presence.token,
           }),
         ),
       );

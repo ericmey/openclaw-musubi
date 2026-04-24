@@ -118,6 +118,7 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
                 mode: "deep",
                 limit,
               },
+              token: presence.token,
             }),
           ),
         );

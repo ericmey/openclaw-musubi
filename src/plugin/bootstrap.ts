@@ -233,6 +233,7 @@ function translateAgentEndEvent(event: unknown):
       id: string;
       content: string;
       timestamp?: string;
+      agentId?: string;
     }
   | undefined {
   if (!event || typeof event !== "object") return undefined;
@@ -240,6 +241,7 @@ function translateAgentEndEvent(event: unknown):
     messages?: unknown[];
     runId?: unknown;
     sessionId?: unknown;
+    agentId?: unknown;
   };
   if (!Array.isArray(e.messages) || e.messages.length === 0) return undefined;
 
@@ -251,7 +253,8 @@ function translateAgentEndEvent(event: unknown):
     (typeof e.runId === "string" && e.runId) ||
     (typeof e.sessionId === "string" && e.sessionId) ||
     `agent_end-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  return { id, content };
+  const agentId = typeof e.agentId === "string" ? e.agentId : undefined;
+  return { id, content, agentId };
 }
 
 function extractMessageText(msg: unknown): string | undefined {
