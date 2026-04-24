@@ -78,11 +78,7 @@ export function createRememberTool(options: CreateRememberToolOptions): Remember
               namespace: presence.namespaces.episodic,
               content: params.content,
               importance: params.importance ?? DEFAULT_IMPORTANCE,
-              tags: [
-                ...(params.topics ?? []),
-                `src:${CAPTURE_SOURCE}`,
-                `ref:${toolCallId}`,
-              ],
+              tags: [...(params.topics ?? []), `src:${CAPTURE_SOURCE}`, `ref:${toolCallId}`],
             },
             idempotencyKey,
             token: presence.token,

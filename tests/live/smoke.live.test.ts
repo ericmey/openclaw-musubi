@@ -75,17 +75,14 @@ describeLive("openclaw-musubi × live Musubi (smoke)", () => {
       topics: ["smoke", "mirror"],
     });
 
-    const verify = await client.post<{ object_id?: string; state?: string }>(
-      "/v1/memories",
-      {
-        body: {
-          namespace: `${NS_ROOT}/episodic`,
-          content: `mirror smoke probe ${eventId} (verify)`,
-          importance: 4,
-          tags: ["smoke", "mirror", `ref:${eventId}-verify`],
-        },
+    const verify = await client.post<{ object_id?: string; state?: string }>("/v1/memories", {
+      body: {
+        namespace: `${NS_ROOT}/episodic`,
+        content: `mirror smoke probe ${eventId} (verify)`,
+        importance: 4,
+        tags: ["smoke", "mirror", `ref:${eventId}-verify`],
       },
-    );
+    });
     expect(verify.object_id).toBeTruthy();
     expect(verify.state).toBe("provisional");
   });

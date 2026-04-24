@@ -71,12 +71,7 @@ describe("createRememberTool", () => {
     // `topics` is folded into `tags` at the canonical boundary so the
     // request matches `POST /v1/memories`'s CaptureRequest shape.
     expect(body.tags).toEqual(
-      expect.arrayContaining([
-        "musubi",
-        "roadmap",
-        "src:openclaw-agent-remember",
-        "ref:call-1",
-      ]),
+      expect.arrayContaining(["musubi", "roadmap", "src:openclaw-agent-remember", "ref:call-1"]),
     );
   });
 

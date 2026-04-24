@@ -326,17 +326,16 @@ describe("MusubiClient", () => {
   });
 
   it("rejects non-http baseUrl at construction", () => {
-    expect(
-      () => new MusubiClient({ baseUrl: "javascript:alert(1)", token: "t" }),
-    ).toThrow(/must be http\(s\)/);
-    expect(
-      () => new MusubiClient({ baseUrl: "file:///etc/passwd", token: "t" }),
-    ).toThrow(/must be http\(s\)/);
+    expect(() => new MusubiClient({ baseUrl: "javascript:alert(1)", token: "t" })).toThrow(
+      /must be http\(s\)/,
+    );
+    expect(() => new MusubiClient({ baseUrl: "file:///etc/passwd", token: "t" })).toThrow(
+      /must be http\(s\)/,
+    );
   });
 
   it("cleans up external abort listener after success", async () => {
     const ac = new AbortController();
-    const listenersBefore = (ac.signal as any).listeners?.length ?? 0;
     const { fetch } = createMockFetch([{ status: 200, body: {} }]);
     const client = makeClient(fetch);
 

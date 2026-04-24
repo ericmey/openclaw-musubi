@@ -23,10 +23,7 @@ export type BackoffOptions = {
   readonly random?: () => number;
 };
 
-export function nextSseBackoffMs(
-  attempt: number,
-  options: BackoffOptions = {},
-): number {
+export function nextSseBackoffMs(attempt: number, options: BackoffOptions = {}): number {
   if (attempt < 0) {
     throw new RangeError(`attempt must be >= 0 (got ${attempt})`);
   }

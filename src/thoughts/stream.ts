@@ -234,9 +234,7 @@ async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutco
   if (!response.ok || !response.body) {
     if (pingTimer) clearTimeout(pingTimer);
     const retryAfterMs =
-      response.status === 503
-        ? parseRetryAfter(response.headers.get("Retry-After"))
-        : undefined;
+      response.status === 503 ? parseRetryAfter(response.headers.get("Retry-After")) : undefined;
     return { kind: "http-error", status: response.status, connected: false, retryAfterMs };
   }
 

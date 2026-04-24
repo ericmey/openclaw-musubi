@@ -59,7 +59,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
     async handleEvent(event: CaptureEvent): Promise<void> {
       if (!enabled) return;
 
-      const resolved = resolveOrSkip(event, config, logger);
+      const resolved = resolveOrSkip(event, config, now, logger);
       if (resolved === undefined) return;
       const { presence, payload } = resolved;
 
@@ -89,7 +89,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
         { items: CanonicalCaptureBody[]; keys: string[]; token: string }
       >();
       for (const event of events) {
-        const resolved = resolveOrSkip(event, config, logger);
+        const resolved = resolveOrSkip(event, config, now, logger);
         if (resolved === undefined) continue;
         const { presence, payload } = resolved;
         const canonical = toCanonicalCapture(payload);
@@ -131,6 +131,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
 function resolveOrSkip(
   event: CaptureEvent,
   config: MusubiConfig,
+  now: () => Date,
   logger: MirrorLogger,
 ):
   | {
@@ -151,7 +152,7 @@ function resolveOrSkip(
     return undefined;
   }
 
-  const payload = translateCaptureEvent(event, presence, () => new Date());
+  const payload = translateCaptureEvent(event, presence, now);
   return { presence, payload };
 }
 

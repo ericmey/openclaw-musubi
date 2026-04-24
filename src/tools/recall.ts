@@ -96,9 +96,10 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
           ),
         );
         if (settled.every((r) => r.status === "rejected")) {
-          const firstErr = settled[0]!.status === "rejected"
-            ? (settled[0] as PromiseRejectedResult).reason
-            : new Error("unknown");
+          const firstErr =
+            settled[0]!.status === "rejected"
+              ? (settled[0] as PromiseRejectedResult).reason
+              : new Error("unknown");
           return toolError(`Musubi recall failed: ${errorMessage(firstErr)}`);
         }
         const seen = new Set<string>();

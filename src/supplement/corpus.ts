@@ -175,8 +175,8 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
           ? presence.namespaces.episodic
           : plane === "thought"
             ? presence.namespaces.thought
-            : presence.namespaces.curatedReadScope.find((n) => n.endsWith(`/${plane}`)) ??
-              presence.namespaces.episodic;
+            : (presence.namespaces.curatedReadScope.find((n) => n.endsWith(`/${plane}`)) ??
+              presence.namespaces.episodic);
 
       try {
         const obj = await client.getWithQuery<MusubiObjectFetchResponse>(path, {

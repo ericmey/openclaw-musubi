@@ -50,9 +50,7 @@ export class MusubiClient {
   constructor(options: ClientOptions) {
     const normalized = options.baseUrl.replace(/\/+$/, "");
     if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
-      throw new TypeError(
-        `MusubiClient baseUrl must be http(s):// (got "${options.baseUrl}")`,
-      );
+      throw new TypeError(`MusubiClient baseUrl must be http(s):// (got "${options.baseUrl}")`);
     }
     this.#baseUrl = normalized;
     this.#token = options.token;

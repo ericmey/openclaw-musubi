@@ -87,9 +87,7 @@ export const TAG_REF_PREFIX = "ref:";
  * If a real need emerges the canonical `CaptureRequest` will grow
  * a field upstream and this translator flips.
  */
-export function toCanonicalCapture(
-  payload: EpisodicCapturePayload,
-): CanonicalCaptureBody {
+export function toCanonicalCapture(payload: EpisodicCapturePayload): CanonicalCaptureBody {
   const tags = [
     ...payload.topics,
     `${TAG_SOURCE_PREFIX}${payload.capture_source}`,

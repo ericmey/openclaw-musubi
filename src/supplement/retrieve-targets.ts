@@ -33,9 +33,7 @@ export function buildRetrieveTargets(
 ): RetrieveTarget[] {
   const primaryBase = presence.presence;
 
-  const targets: RetrieveTarget[] = [
-    { baseNamespace: primaryBase, planes: [...planes] },
-  ];
+  const targets: RetrieveTarget[] = [{ baseNamespace: primaryBase, planes: [...planes] }];
 
   // Shared namespaces are full 3-segment paths like "eric/_shared/curated".
   // Extract unique bases (first two segments) and the planes they host.
@@ -43,9 +41,9 @@ export function buildRetrieveTargets(
   for (const ns of presence.namespaces.curatedReadScope) {
     const parts = ns.split("/");
     if (parts.length < 3) continue;
-    const base = `${parts[0]}/${parts[1]}`;
+    const [owner, shared, plane] = parts as [string, string, string, ...string[]];
+    const base = `${owner}/${shared}`;
     if (base === primaryBase) continue;
-    const plane = parts[2];
     if (!planes.includes(plane)) continue;
     const set = sharedBases.get(base) ?? new Set<string>();
     set.add(plane);
