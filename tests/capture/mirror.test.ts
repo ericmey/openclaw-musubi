@@ -106,7 +106,7 @@ describe("createCaptureMirror", () => {
     await mirror.handleEvent({ id: "evt-1", content: "hello" });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/memories");
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic");
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.headers["Idempotency-Key"]).toBe("openclaw-mirror:evt-1");
     const body = JSON.parse(calls[0]!.body!);
@@ -133,7 +133,7 @@ describe("createCaptureMirror", () => {
     ]);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/memories/batch");
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic/batch");
     const body = JSON.parse(calls[0]!.body!);
     // Canonical batch shape: {namespace, items[]}. Each item carries
     // content/importance/tags — no per-item namespace or idempotency

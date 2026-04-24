@@ -65,6 +65,7 @@ type MusubiRetrieveRow = {
   readonly plane: string;
   readonly content: string;
   readonly namespace: string;
+  readonly title?: string | null;
   readonly extra?: Record<string, unknown>;
 };
 
@@ -215,6 +216,7 @@ function toCorpusSearchResult(row: MusubiRetrieveRow): CorpusSearchResult {
     path: `${row.plane}/${row.object_id}`,
     score: row.score,
     snippet: row.content.slice(0, SNIPPET_MAX_CHARS),
+    title: row.title ?? undefined,
     id: row.object_id,
     source: row.namespace,
     provenanceLabel: provenanceLabelFor(row.plane),

@@ -48,6 +48,7 @@ type MusubiRetrieveRow = {
   readonly plane: string;
   readonly content: string;
   readonly namespace: string;
+  readonly title?: string | null;
 };
 
 type MusubiRetrieveResponse = {
@@ -128,7 +129,8 @@ function formatResults(rows: readonly MusubiRetrieveRow[]): string {
   lines.push(`Musubi returned ${rows.length} result(s):`);
   lines.push("");
   for (const row of rows) {
-    lines.push(`[${row.plane}] (score ${row.score.toFixed(2)}) ${row.namespace}/${row.object_id}`);
+    const label = row.title ? `${row.title}` : `${row.namespace}/${row.object_id}`;
+    lines.push(`[${row.plane}] (score ${row.score.toFixed(2)}) ${label}`);
     lines.push(row.content);
     lines.push("");
   }

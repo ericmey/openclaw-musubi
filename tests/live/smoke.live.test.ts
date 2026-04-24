@@ -75,7 +75,7 @@ describeLive("openclaw-musubi × live Musubi (smoke)", () => {
       topics: ["smoke", "mirror"],
     });
 
-    const verify = await client.post<{ object_id?: string; state?: string }>("/v1/memories", {
+    const verify = await client.post<{ object_id?: string; state?: string }>("/v1/episodic", {
       body: {
         namespace: `${NS_ROOT}/episodic`,
         content: `mirror smoke probe ${eventId} (verify)`,
@@ -87,7 +87,7 @@ describeLive("openclaw-musubi × live Musubi (smoke)", () => {
     expect(verify.state).toBe("provisional");
   });
 
-  it("musubi_remember tool POSTs the canonical /v1/memories shape", async () => {
+  it("musubi_remember tool POSTs the canonical /v1/episodic shape", async () => {
     const client = makeLiveClient();
     const config = makeLiveConfig();
     const tool = createRememberTool({ client, config });
@@ -155,7 +155,7 @@ describeLive("openclaw-musubi × live Musubi (smoke)", () => {
     // The client maps 403 → ForbiddenError; the mirror/tool code treats
     // it as a non-blocking failure and the outer catch returns cleanly.
     await expect(
-      client.post("/v1/memories", {
+      client.post("/v1/episodic", {
         body: {
           namespace: "eric/claude-code/episodic",
           content: "should be forbidden",
