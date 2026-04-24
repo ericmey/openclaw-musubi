@@ -41,7 +41,7 @@ export default definePluginEntry({
   description:
     "Connect OpenClaw agents to a Musubi memory core. Episodic capture mirroring, curated + concept recall via memory supplements, and presence-to-presence thought delivery over SSE.",
   register(api) {
-    const rawConfig = (api as unknown as { config?: unknown }).config;
+    const rawConfig = (api as unknown as { pluginConfig?: unknown }).pluginConfig;
     void bootstrap({
       api: api as unknown as BootstrapPluginApi,
       rawConfig,
