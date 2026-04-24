@@ -90,8 +90,8 @@ The server requires `?namespace=...` on every GET-by-id endpoint:
 
 | Plane | Plugin calls | Server expects |
 |-------|-------------|----------------|
-| `curated` | `GET /v1/curated/{id}` | `GET /v1/curated-knowledge/{id}?namespace=...` |
-| `episodic` | `GET /v1/episodic/{id}` | `GET /v1/memories/{id}?namespace=...` |
+| `curated` | `GET /v1/curated/{id}` | `GET /v1/curated/{id}?namespace=...` |
+| `episodic` | `GET /v1/episodic/{id}` | `GET /v1/episodic/{id}?namespace=...` |
 | `concept` | `GET /v1/concepts/{id}` | `GET /v1/concepts/{id}?namespace=...` |
 | `artifact` | `GET /v1/artifacts/{id}` | `GET /v1/artifacts/{id}?namespace=...` |
 
@@ -145,8 +145,8 @@ Document the changed failure semantics if the strict-403 behavior is unacceptabl
 
 | Document claim | Server reality |
 |----------------|----------------|
-| `POST /v1/episodic` | Does not exist. Correct: `POST /v1/memories` |
-| `POST /v1/episodic/batch` | Does not exist. Correct: `POST /v1/memories/batch` |
+| `POST /v1/episodic` | ✅ Aligned in v1.0 (was `POST /v1/memories`) |
+| `POST /v1/episodic/batch` | ✅ Aligned in v1.0 (was `POST /v1/memories/batch`) |
 | Thought send idempotency via `client_id` in body | `ThoughtSendRequest` has **no** `client_id` field. Idempotency is header-only (`Idempotency-Key`). |
 | `POST /v1/thoughts/read` mentioned as polling fallback | Exists, but plugin doesn't implement it. |
 
@@ -216,8 +216,8 @@ The test header says:
 MUSUBI_LIVE_BASE_URL=http://musubi.mey.house:8100/v1
 ```
 
-`MusubiClient` appends `/v1/memories` to `baseUrl`. Following the docs literally
-produces `.../v1/v1/memories`. The `README.md` example correctly omits `/v1`, but
+`MusubiClient` appends `/v1/episodic` to `baseUrl`. Following the docs literally
+produces `.../v1/v1/episodic`. The `README.md` example correctly omits `/v1`, but
 the live test comment contradicts it.
 
 **Fix:** Remove `/v1` from the live test docstring.
@@ -267,7 +267,7 @@ config UI help text.
 ### 38. Server returns `202 Accepted` for captures, but plugin tests/docs expect `200 OK`
 **File:** `src/musubi/api/routers/writes_episodic.py` (implied by OpenAPI)
 
-The OpenAPI shows `202` for `POST /v1/memories`, `POST /v1/memories/batch`, and
+The OpenAPI shows `202` for `POST /v1/episodic`, `POST /v1/episodic/batch`, and
 `POST /v1/thoughts/send`. Plugin tests mock `status: 200`. `response.ok` covers
 200–299, but the test suite validates against the wrong status code.
 

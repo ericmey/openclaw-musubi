@@ -69,7 +69,7 @@ describe("createRememberTool", () => {
     expect(body.content).toBe("Eric said ship Musubi v2 this quarter.");
     expect(body.importance).toBe(9);
     // `topics` is folded into `tags` at the canonical boundary so the
-    // request matches `POST /v1/memories`'s CaptureRequest shape.
+    // request matches `POST /v1/episodic`'s CaptureRequest shape.
     expect(body.tags).toEqual(
       expect.arrayContaining(["musubi", "roadmap", "src:openclaw-agent-remember", "ref:call-1"]),
     );
@@ -88,7 +88,7 @@ describe("createRememberTool", () => {
 
     await tool.definition.execute("call", { content: "x" });
 
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/memories");
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic");
     const body = JSON.parse(calls[0]!.body!);
     expect(body.namespace).toBe("eric/aoi/episodic");
     // Canonical CaptureRequest has no `capture_source` — it lives in

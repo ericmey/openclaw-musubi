@@ -39,6 +39,7 @@ type StandingContextItem = {
   readonly plane: string;
   readonly content: string;
   readonly source: string;
+  readonly title?: string;
 };
 
 type MusubiRetrieveRow = {
@@ -47,6 +48,7 @@ type MusubiRetrieveRow = {
   readonly plane: string;
   readonly content: string;
   readonly namespace: string;
+  readonly title?: string | null;
 };
 
 type MusubiRetrieveResponse = {
@@ -92,7 +94,8 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
         const header = SECTION_HEADERS[plane] ?? `**Musubi ${plane}:**`;
         lines.push(header);
         for (const item of items) {
-          lines.push(`- ${item.content} (${item.source})`);
+          const label = item.title ? `${item.title} — ${item.source}` : item.source;
+          lines.push(`- ${item.content} (${label})`);
         }
       }
 
@@ -147,6 +150,7 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
           plane: row.plane,
           content: row.content,
           source: row.namespace,
+          title: row.title ?? undefined,
         }),
       );
     },

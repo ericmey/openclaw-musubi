@@ -54,8 +54,8 @@ export type EpisodicCapturePayload = {
 };
 
 /**
- * Body shape accepted by `POST /v1/memories` on the canonical Musubi
- * API as of v0.4.0. Kept deliberately narrow — any field the
+ * Body shape accepted by `POST /v1/episodic` on the canonical Musubi
+ * API as of v1.0. Kept deliberately narrow — any field the
  * canonical `CaptureRequest` does not declare is silently dropped
  * server-side, which is why we prefer to fold our audit metadata
  * into `tags` rather than sending rich keys that never reach the

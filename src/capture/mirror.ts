@@ -64,7 +64,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
       const { presence, payload } = resolved;
 
       try {
-        await client.post("/v1/memories", {
+        await client.post("/v1/episodic", {
           body: toCanonicalCapture(payload),
           idempotencyKey: deriveIdempotencyKey(event),
           token: presence.token,
@@ -80,7 +80,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
     async handleBatch(events: readonly CaptureEvent[]): Promise<void> {
       if (!enabled || events.length === 0) return;
 
-      // One namespace per batch — the canonical `/v1/memories/batch`
+      // One namespace per batch — the canonical `/v1/episodic/batch`
       // endpoint takes a single top-level `namespace` and a list of
       // `items` rather than repeating the namespace per row. Group
       // events by their resolved (namespace, token) pair before dispatching
@@ -115,7 +115,7 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
           tags: c.tags,
         }));
         try {
-          await client.post("/v1/memories/batch", {
+          await client.post("/v1/episodic/batch", {
             body: { namespace: bucket.namespace, items },
             idempotencyKey: `batch:${bucket.keys.join(",")}`,
             token: bucket.token,
