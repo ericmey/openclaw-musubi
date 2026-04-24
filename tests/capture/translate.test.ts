@@ -46,7 +46,7 @@ describe("translateCaptureEvent", () => {
     expect(payload.importance).toBe(5);
   });
 
-  it("clamps importance to [0,10]", () => {
+  it("clamps importance to [1,10]", () => {
     const high = translateCaptureEvent(
       { id: "x", content: "hello", importance: 99 },
       presence,
@@ -63,7 +63,7 @@ describe("translateCaptureEvent", () => {
       fixedNow,
     );
     expect(high.importance).toBe(10);
-    expect(low.importance).toBe(0);
+    expect(low.importance).toBe(1);
     expect(nan.importance).toBe(5);
   });
 

@@ -40,10 +40,10 @@ export const RememberParameters = Type.Object(
     }),
     importance: Type.Optional(
       Type.Integer({
-        minimum: 0,
+        minimum: 1,
         maximum: 10,
         description:
-          "Importance hint 0-10. Default 7 (agents explicitly remembering is higher-signal than passive capture).",
+          "Importance hint 1-10. Default 7 (agents explicitly remembering is higher-signal than passive capture)."
       }),
     ),
     topics: Type.Optional(
@@ -79,9 +79,9 @@ export const ThinkParameters = Type.Object(
     ),
     importance: Type.Optional(
       Type.Integer({
-        minimum: 0,
+        minimum: 1,
         maximum: 10,
-        description: "Priority hint 0-10. Default 5.",
+        description: "Priority hint 1-10. Default 5.",
       }),
     ),
   },

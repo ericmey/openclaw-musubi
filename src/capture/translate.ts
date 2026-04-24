@@ -23,7 +23,7 @@ export type CaptureEvent = {
   readonly content: string;
   /** ISO 8601 timestamp; defaults to now if absent. */
   readonly timestamp?: string;
-  /** Importance hint, 0-10. Defaults to 5 (neutral). */
+  /** Importance hint, 1-10. Defaults to 5 (neutral). */
   readonly importance?: number;
   /** Optional topic tags. */
   readonly topics?: readonly string[];
@@ -130,5 +130,5 @@ export function deriveIdempotencyKey(event: CaptureEvent): string {
 
 function clampImportance(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_IMPORTANCE;
-  return Math.max(0, Math.min(10, Math.round(value)));
+  return Math.max(1, Math.min(10, Math.round(value)));
 }

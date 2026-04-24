@@ -43,7 +43,7 @@ export type ResolveOptions = {
 
 type PresenceConfig = Pick<MusubiConfig, "core" | "presence">;
 
-const ENV_VAR_PATTERN = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
+const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 export function resolvePresence(
   config: PresenceConfig,
