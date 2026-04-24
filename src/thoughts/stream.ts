@@ -1,4 +1,5 @@
 import type { MusubiConfig } from "../config.js";
+import type { MusubiClient } from "../musubi/client.js";
 import { resolvePresence } from "../presence/resolver.js";
 import { nextSseBackoffMs } from "./backoff.js";
 import { BoundedDedupSet } from "./dedup.js";
@@ -54,6 +55,8 @@ export type CreateThoughtStreamOptions = {
   readonly include?: string;
   /** Upper bound on reconnect backoff. Defaults to 60s. */
   readonly maxBackoffMs?: number;
+  /** Musubi client for history backfill when replay is truncated. */
+  readonly client?: MusubiClient;
 };
 
 export type ThoughtStream = {
@@ -111,6 +114,8 @@ export function createThoughtStream(options: CreateThoughtStreamOptions): Though
 
       const url = buildStreamUrl(baseUrl, presence.presence, options.include);
 
+      const client = options.client;
+
       while (running) {
         const connectedAtCandidate = now();
         const outcome = await runOneConnection({
@@ -138,6 +143,26 @@ export function createThoughtStream(options: CreateThoughtStreamOptions): Though
         if (!running) {
           handlers.onDisconnect?.("stopped");
           return;
+        }
+
+        // History backfill when the server signals replay truncation.
+        // We backfill *before* reconnecting so the next Last-Event-ID
+        // covers the gap.
+        if (outcome.connected && outcome.truncated && client !== undefined) {
+          try {
+            await backfillHistory({
+              client,
+              namespace: presence.namespaces.thought,
+              presence: presence.presence,
+              token: presence.token,
+              dedup,
+              handlers,
+              persistence,
+              getRunning: () => running,
+            });
+          } catch {
+            // Backfill is best-effort; ignore errors and reconnect normally.
+          }
         }
 
         handlers.onDisconnect?.(outcome.kind);
@@ -175,10 +200,10 @@ type ConnectionOutcome =
   | { kind: "auth-fail"; status: 401 | 403; connected: false }
   | { kind: "http-error"; status: number; connected: false; retryAfterMs?: number }
   | { kind: "network-error"; connected: false }
-  | { kind: "stream-error"; connected: true }
-  | { kind: "ping-gap-timeout"; connected: true }
-  | { kind: "ended"; connected: true }
-  | { kind: "close"; connected: true; reconnectAfterMs: number | undefined };
+  | { kind: "stream-error"; connected: true; truncated?: boolean }
+  | { kind: "ping-gap-timeout"; connected: true; truncated?: boolean }
+  | { kind: "ended"; connected: true; truncated?: boolean }
+  | { kind: "close"; connected: true; reconnectAfterMs: number | undefined; truncated?: boolean };
 
 type ConnectionContext = {
   url: string;
@@ -242,6 +267,8 @@ async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutco
     return { kind: "http-error", status: response.status, connected: false, retryAfterMs };
   }
 
+  const truncated = response.headers.get("X-Musubi-Replay-Truncated") === "true";
+
   resetPingTimer();
   ctx.handlers.onConnected?.();
 
@@ -249,7 +276,7 @@ async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutco
     for await (const frame of parseSseStream(response.body)) {
       resetPingTimer();
       if (!ctx.getRunning()) {
-        return { kind: "ended", connected: true };
+        return { kind: "ended", connected: true, truncated };
       }
 
       if (frame.event === "thought") {
@@ -266,16 +293,17 @@ async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutco
           kind: "close",
           connected: true,
           reconnectAfterMs: data?.reconnect_after_ms,
+          truncated,
         };
       }
       // Pings just reset the timer (already done above).
     }
-    return { kind: "ended", connected: true };
+    return { kind: "ended", connected: true, truncated };
   } catch {
     if (pingGapTriggered) {
-      return { kind: "ping-gap-timeout", connected: true };
+      return { kind: "ping-gap-timeout", connected: true, truncated };
     }
-    return { kind: "stream-error", connected: true };
+    return { kind: "stream-error", connected: true, truncated };
   } finally {
     if (pingTimer) clearTimeout(pingTimer);
   }
@@ -355,4 +383,75 @@ function parseRetryAfter(header: string | null, now: () => number = Date.now): n
     return Math.max(0, dateMs - now());
   }
   return undefined;
+}
+
+// ------------------------------------------------------------------
+// History backfill — triggered when X-Musubi-Replay-Truncated signals
+// the server couldn't fit all missed events into the 500-event replay cap.
+// ------------------------------------------------------------------
+
+type ThoughtHistoryItem = {
+  readonly object_id: string;
+  readonly content?: unknown;
+  readonly [key: string]: unknown;
+};
+
+type ThoughtHistoryResponse = {
+  readonly items: readonly ThoughtHistoryItem[];
+};
+
+type BackfillContext = {
+  readonly client: MusubiClient;
+  readonly namespace: string;
+  readonly presence: string;
+  readonly token: string;
+  readonly dedup: BoundedDedupSet;
+  readonly handlers: ThoughtStreamHandlers;
+  readonly persistence: LastEventIdStore;
+  readonly getRunning: () => boolean;
+};
+
+const BACKFILL_LIMIT = 1_000;
+
+async function backfillHistory(ctx: BackfillContext): Promise<void> {
+  const response = await ctx.client.post<ThoughtHistoryResponse>("/v1/thoughts/history", {
+    body: {
+      namespace: ctx.namespace,
+      presence: ctx.presence,
+      query_text: "*",
+      limit: BACKFILL_LIMIT,
+    },
+    token: ctx.token,
+  });
+
+  const items = response.items ?? [];
+  // Sort ascending by object_id so persistence advances monotonically.
+  const sorted = [...items].sort((a, b) => {
+    if (a.object_id < b.object_id) return -1;
+    if (a.object_id > b.object_id) return 1;
+    return 0;
+  });
+
+  // Read the current cursor so we never move it backwards.
+  const cursor = await ctx.persistence.read();
+
+  for (const item of sorted) {
+    if (!ctx.getRunning()) break;
+
+    const thought: ThoughtPayload = {
+      object_id: item.object_id,
+      content: typeof item.content === "string" ? item.content : "",
+      from_presence: typeof item.from_presence === "string" ? item.from_presence : "",
+      to_presence: typeof item.to_presence === "string" ? item.to_presence : "",
+      namespace: typeof item.namespace === "string" ? item.namespace : ctx.namespace,
+      sent_at: typeof item.sent_at === "string" ? item.sent_at : new Date().toISOString(),
+    };
+    if (ctx.dedup.add(thought.object_id)) {
+      await ctx.handlers.onThought(thought);
+      // Only advance the cursor forward (lex ascending); never backward.
+      if (cursor === undefined || thought.object_id > cursor) {
+        await ctx.persistence.write(thought.object_id);
+      }
+    }
+  }
 }

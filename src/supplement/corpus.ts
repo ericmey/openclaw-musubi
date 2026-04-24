@@ -8,6 +8,23 @@ import { resolvePresence } from "../presence/resolver.js";
 import { buildRetrieveTargets } from "./retrieve-targets.js";
 
 /**
+ * Extract a bare agent id from an OpenClaw session key.
+ *
+ * OpenClaw session keys are composite strings like `agent:nyla:main`
+ * or `agent:ops:telegram:direct:owner:tail`. The second colon-delimited
+ * segment is the agent id. If the input is already a bare id (no
+ * `agent:` prefix) it is returned unchanged.
+ */
+function resolveAgentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  if (!sessionKey) return undefined;
+  const parts = sessionKey.split(":").filter(Boolean);
+  if (parts.length >= 3 && parts[0] === "agent") {
+    return parts[1];
+  }
+  return sessionKey;
+}
+
+/**
  * Structural shape of a single result row consumed by OpenClaw's
  * `MemoryCorpusSupplement.search` callback. Mirrors `MemoryCorpusSearchResult`
  * in the OpenClaw SDK (`src/plugins/memory-state.ts`) — duplicated here so
@@ -111,7 +128,9 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
 
       let presence;
       try {
-        presence = resolvePresence(config, { agentId: params.agentSessionKey });
+        presence = resolvePresence(config, {
+          agentId: resolveAgentIdFromSessionKey(params.agentSessionKey),
+        });
       } catch {
         return [];
       }
@@ -162,7 +181,9 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
 
       let presence;
       try {
-        presence = resolvePresence(config, { agentId: params.agentSessionKey });
+        presence = resolvePresence(config, {
+          agentId: resolveAgentIdFromSessionKey(params.agentSessionKey),
+        });
       } catch {
         return null;
       }

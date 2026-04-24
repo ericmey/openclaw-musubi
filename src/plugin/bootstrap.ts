@@ -93,6 +93,7 @@ export type BootstrapOptions = {
   readonly thoughtStreamFactory?: (args: {
     config: MusubiConfig;
     fetch?: FetchLike;
+    client?: MusubiClient;
   }) => ThoughtStream;
   /** Prompt-supplement refresh interval. Default 60s. */
   readonly refreshIntervalMs?: number;
@@ -138,10 +139,6 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
     },
     now: options.now,
   });
-  const recallTool = createRecallTool({ client, config });
-  const rememberTool = createRememberTool({ client, config });
-  const thinkTool = createThinkTool({ client, config });
-
   // 4. Register capabilities. Order matters only loosely (supplements
   //    before tools, hooks last) but we keep it stable for test #11.
   api.registerMemoryCorpusSupplement(corpusSupplement);
@@ -154,15 +151,28 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
       citationsMode: params.citationsMode,
     });
   api.registerMemoryPromptSupplement(promptBuilder);
-  api.registerTool(recallTool.definition);
-  api.registerTool(rememberTool.definition);
-  api.registerTool(thinkTool.definition);
+  // Register tools as factories so each execution receives the active
+  // agent's identity from OpenClaw's runtime context. Static tool
+  // registration captures the default presence once at load time,
+  // which breaks per-agent token isolation.
+  api.registerTool(
+    (ctx: { agentId?: string }) =>
+      createRecallTool({ client, config, agentId: ctx.agentId }).definition,
+  );
+  api.registerTool(
+    (ctx: { agentId?: string }) =>
+      createRememberTool({ client, config, agentId: ctx.agentId }).definition,
+  );
+  api.registerTool(
+    (ctx: { agentId?: string }) =>
+      createThinkTool({ client, config, agentId: ctx.agentId }).definition,
+  );
 
   // `agent_end` → `capture-mirror.handleEvent`. Failures are swallowed
   // inside the mirror so a Musubi outage never blocks OpenClaw's own
   // memory write (ADR-0001).
-  api.on("agent_end", ((event: unknown, _ctx: unknown) => {
-    const captureEvent = translateAgentEndEvent(event);
+  api.on("agent_end", ((event: unknown, ctx: { agentId?: string }) => {
+    const captureEvent = translateAgentEndEvent(event, ctx.agentId);
     if (captureEvent === undefined) return;
     void captureMirror.handleEvent(captureEvent);
   }) as unknown as (...args: unknown[]) => unknown);
@@ -202,8 +212,9 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
           config: args.config,
           fetch: args.fetch,
           maxBackoffMs: config.thoughts?.reconnect?.maxBackoffMs,
+          client: args.client,
         }));
-    const stream = streamFactory({ config, fetch: options.fetch });
+    const stream = streamFactory({ config, fetch: options.fetch, client });
     // start() enters the reconnect loop; we don't await it (it blocks
     // while running and resolves only on stop()).
     void stream.start({
@@ -233,7 +244,10 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
  * test; a richer extraction is owned by a future slice if + when
  * OpenClaw exposes a canonical "capture-eligible" extraction helper.
  */
-function translateAgentEndEvent(event: unknown):
+function translateAgentEndEvent(
+  event: unknown,
+  agentIdFromContext?: string,
+):
   | {
       id: string;
       content: string;
@@ -246,7 +260,6 @@ function translateAgentEndEvent(event: unknown):
     messages?: unknown[];
     runId?: unknown;
     sessionId?: unknown;
-    agentId?: unknown;
   };
   if (!Array.isArray(e.messages) || e.messages.length === 0) return undefined;
 
@@ -258,8 +271,7 @@ function translateAgentEndEvent(event: unknown):
     (typeof e.runId === "string" && e.runId) ||
     (typeof e.sessionId === "string" && e.sessionId) ||
     `agent_end-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  const agentId = typeof e.agentId === "string" ? e.agentId : undefined;
-  return { id, content, agentId };
+  return { id, content, agentId: agentIdFromContext };
 }
 
 function extractMessageText(msg: unknown): string | undefined {

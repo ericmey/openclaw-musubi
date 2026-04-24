@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createThoughtStream, type ThoughtPayload } from "../../src/thoughts/stream.js";
 import type { FetchForStream } from "../../src/thoughts/stream.js";
 import { BoundedDedupSet } from "../../src/thoughts/dedup.js";
 import { InMemoryLastEventIdStore } from "../../src/thoughts/persistence.js";
 import type { MusubiConfig } from "../../src/config.js";
+import type { MusubiClient } from "../../src/musubi/client.js";
 
 function makeConfig(overrides: Partial<MusubiConfig> = {}): MusubiConfig {
   return {
@@ -589,5 +590,176 @@ describe("createThoughtStream", () => {
     await startPromise;
     expect(stream.isRunning()).toBe(false);
     expect(requests.length).toBe(1); // no reconnect after stop
+  });
+
+  it("detects X-Musubi-Replay-Truncated and backfills via history", async () => {
+    const historyCalls: unknown[] = [];
+    const mockClient = {
+      post: vi.fn(async <T>(_path: string, opts: { body: unknown; token?: string }): Promise<T> => {
+        historyCalls.push(opts.body);
+        return { items: [{ object_id: "hist-1", content: "backfilled" }] } as T;
+      }),
+    } as unknown as MusubiClient;
+
+    const received: ThoughtPayload[] = [];
+    const { fetch } = createMockFetch([
+      {
+        status: 200,
+        actions: [
+          { type: "frames", text: makeThoughtFrame({ object_id: "k1", content: "live" }) },
+          { type: "frames", text: frame("close", undefined, { reason: "server-shutdown" }) },
+          { type: "close" },
+        ],
+        // The truncation header is set on the Response, which our mock
+        // fetch factory doesn't expose per-action. We simulate it by
+        // making the second connection (after backfill+reconnect) return
+        // a non-truncated close so the test terminates.
+      },
+      {
+        status: 200,
+        actions: [{ type: "close" }],
+      },
+    ]);
+
+    // Override the Response constructor to inject the truncation header
+    // on the first connection only.
+    let connectionCount = 0;
+    const fetchWithTruncation: FetchForStream = async (url, init) => {
+      connectionCount += 1;
+      const resp = await fetch(url, init);
+      if (connectionCount === 1) {
+        // Clone the response with the truncation header added.
+        const body = resp.body;
+        const headers = new Headers(resp.headers);
+        headers.set("X-Musubi-Replay-Truncated", "true");
+        return new Response(body, { status: resp.status, headers });
+      }
+      return resp;
+    };
+
+    const stream = createThoughtStream({
+      config: makeConfig(),
+      fetch: fetchWithTruncation,
+      client: mockClient,
+      sleep: async () => undefined,
+      random: () => 0,
+    });
+
+    await stream.start({
+      onThought: (t) => {
+        received.push(t);
+        if (received.length >= 2) void stream.stop();
+      },
+    });
+
+    // Should have received the live thought + the backfilled thought.
+    expect(received.length).toBeGreaterThanOrEqual(2);
+    expect(received.some((t) => t.content === "live")).toBe(true);
+    expect(received.some((t) => t.content === "backfilled")).toBe(true);
+    expect(historyCalls.length).toBe(1);
+  });
+
+  it("dedups backfilled thoughts already seen in replay", async () => {
+    const mockClient = {
+      post: vi.fn(async <T>(): Promise<T> => {
+        return {
+          items: [{ object_id: "k1", content: "duplicate" }],
+        } as T;
+      }),
+    } as unknown as MusubiClient;
+
+    const received: string[] = [];
+    const { fetch } = createMockFetch([
+      {
+        status: 200,
+        actions: [
+          { type: "frames", text: makeThoughtFrame({ object_id: "k1", content: "first" }) },
+          { type: "close" },
+        ],
+      },
+      { status: 200, actions: [{ type: "close" }] },
+    ]);
+
+    let connectionCount = 0;
+    const fetchWithTruncation: FetchForStream = async (url, init) => {
+      connectionCount += 1;
+      const resp = await fetch(url, init);
+      if (connectionCount === 1) {
+        const body = resp.body;
+        const headers = new Headers(resp.headers);
+        headers.set("X-Musubi-Replay-Truncated", "true");
+        return new Response(body, { status: resp.status, headers });
+      }
+      return resp;
+    };
+
+    const stream = createThoughtStream({
+      config: makeConfig(),
+      fetch: fetchWithTruncation,
+      client: mockClient,
+      sleep: async () => undefined,
+      random: () => 0,
+    });
+
+    await stream.start({
+      onThought: (t) => {
+        received.push(t.object_id);
+      },
+      onDisconnect: () => {
+        // Stop after the first disconnect so the backfill path (which
+        // runs before disconnect) has a chance to complete.
+        if (received.length >= 1) void stream.stop();
+      },
+    });
+
+    // Verify the backfill endpoint was actually called.
+    expect(mockClient.post).toHaveBeenCalledTimes(1);
+
+    // k1 was seen in replay; the backfill duplicate must be deduped.
+    expect(received.filter((id) => id === "k1").length).toBe(1);
+  });
+
+  it("gracefully skips backfill when client is not provided", async () => {
+    const { fetch } = createMockFetch([
+      {
+        status: 200,
+        actions: [
+          { type: "frames", text: makeThoughtFrame({ object_id: "k1" }) },
+          { type: "close" },
+        ],
+      },
+      { status: 200, actions: [{ type: "close" }] },
+    ]);
+
+    let connectionCount = 0;
+    const fetchWithTruncation: FetchForStream = async (url, init) => {
+      connectionCount += 1;
+      const resp = await fetch(url, init);
+      if (connectionCount === 1) {
+        const body = resp.body;
+        const headers = new Headers(resp.headers);
+        headers.set("X-Musubi-Replay-Truncated", "true");
+        return new Response(body, { status: resp.status, headers });
+      }
+      return resp;
+    };
+
+    const stream = createThoughtStream({
+      config: makeConfig(),
+      fetch: fetchWithTruncation,
+      // no client
+      sleep: async () => undefined,
+      random: () => 0,
+    });
+
+    let seen = 0;
+    await stream.start({
+      onThought: () => {
+        seen += 1;
+        if (seen >= 1) void stream.stop();
+      },
+    });
+
+    expect(seen).toBe(1); // no crash, normal replay processed
   });
 });

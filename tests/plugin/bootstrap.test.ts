@@ -184,7 +184,18 @@ describe("bootstrap: capability registration", () => {
     await bootstrap(commonOpts(api));
     const tools = api.events.filter((e) => e.kind === "registerTool");
     expect(tools).toHaveLength(3);
-    const names = tools.map((t) => (t.arg as { name: string }).name).sort();
+    const names = tools
+      .map((t) => {
+        const arg = t.arg as unknown;
+        // OpenClaw supports both static tools and factory functions.
+        // Factories receive { agentId?: string } at execution time.
+        const tool =
+          typeof arg === "function"
+            ? (arg as (ctx: { agentId?: string }) => { name: string })({ agentId: "test" })
+            : (arg as { name: string });
+        return tool.name;
+      })
+      .sort();
     expect(names).toEqual(["musubi_recall", "musubi_remember", "musubi_think"]);
   });
 });
@@ -267,7 +278,12 @@ describe("bootstrap: integration wiring", () => {
     const kinds = api.events.map((e) => {
       if (e.kind === "on") return `on:${e.hook}`;
       if (e.kind === "registerTool") {
-        const name = (e.arg as { name?: string }).name ?? "<unnamed>";
+        const arg = e.arg as unknown;
+        const tool =
+          typeof arg === "function"
+            ? (arg as (ctx: { agentId?: string }) => { name?: string })({ agentId: "test" })
+            : (arg as { name?: string });
+        const name = tool.name ?? "<unnamed>";
         return `registerTool:${name}`;
       }
       return e.kind;
