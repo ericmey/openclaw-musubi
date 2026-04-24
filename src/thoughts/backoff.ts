@@ -18,9 +18,14 @@ export const SSE_BASE_DELAY_MS = 1_000;
 export const SSE_JITTER_MS = 1_000;
 export const SSE_MAX_DELAY_MS = 60_000;
 
+export type BackoffOptions = {
+  readonly maxDelayMs?: number;
+  readonly random?: () => number;
+};
+
 export function nextSseBackoffMs(
   attempt: number,
-  options: { readonly maxDelayMs?: number; readonly random?: () => number } = {},
+  options: BackoffOptions = {},
 ): number {
   if (attempt < 0) {
     throw new RangeError(`attempt must be >= 0 (got ${attempt})`);

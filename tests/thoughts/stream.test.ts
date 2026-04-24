@@ -20,7 +20,7 @@ type ScriptedSseAction =
 
 type ScriptedResponse =
   | { status: 200; actions: ScriptedSseAction[] }
-  | { status: number }
+  | { status: number; headers?: Record<string, string> }
   | { throw: Error };
 
 type RecordedRequest = {
@@ -101,7 +101,10 @@ function createMockFetch(script: ScriptedResponse[]): {
       });
     }
 
-    return new Response(null, { status: def.status });
+    return new Response(null, {
+      status: def.status,
+      headers: "headers" in def ? def.headers : {},
+    });
   };
   return { fetch, requests };
 }
@@ -254,6 +257,40 @@ describe("createThoughtStream", () => {
     // First two are pure exponential 1000, 2000 with no-jitter.
     expect(sleepCalls[0]).toBe(1_000);
     expect(sleepCalls[1]).toBe(2_000);
+    expect(stream.isRunning()).toBe(false);
+  });
+
+  it("honors Retry-After on 503 instead of exponential backoff", async () => {
+    const sleepCalls: number[] = [];
+    const { fetch, requests } = createMockFetch([
+      { status: 503, headers: { "Retry-After": "5" } },
+      {
+        status: 200,
+        actions: [
+          { type: "frames", text: makeThoughtFrame({ object_id: "k1" }) },
+          { type: "close" },
+        ],
+      },
+    ]);
+
+    const stream = createThoughtStream({
+      config: makeConfig(),
+      fetch,
+      sleep: async (ms) => {
+        sleepCalls.push(ms);
+      },
+      random: () => 0,
+    });
+
+    await stream.start({
+      onThought: () => {
+        void stream.stop();
+      },
+    });
+
+    expect(requests).toHaveLength(2);
+    // 503 Retry-After: 5 seconds → 5000ms, not exponential 1000ms.
+    expect(sleepCalls[0]).toBe(5_000);
     expect(stream.isRunning()).toBe(false);
   });
 

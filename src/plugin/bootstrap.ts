@@ -197,7 +197,12 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   if (thoughtsEnabled) {
     const streamFactory =
       options.thoughtStreamFactory ??
-      ((args) => createThoughtStream({ config: args.config, fetch: args.fetch }));
+      ((args) =>
+        createThoughtStream({
+          config: args.config,
+          fetch: args.fetch,
+          maxBackoffMs: config.thoughts?.reconnect?.maxBackoffMs,
+        }));
     const stream = streamFactory({ config, fetch: options.fetch });
     // start() enters the reconnect loop; we don't await it (it blocks
     // while running and resolves only on stop()).
