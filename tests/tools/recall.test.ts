@@ -64,33 +64,32 @@ describe("createRecallTool", () => {
   });
 
   it("test_recall_accepts_plane_filter_and_limit_parameters", async () => {
-    // Canonical retrieve requires one call per (namespace, plane)
-    // target (see `src/tools/recall.ts`). The mock returns the last
-    // scripted response for overflow calls, so a single `{results: []}`
-    // covers every fanout call.
+    // Per Musubi ADR 0031, recall now uses a tenant-wide wildcard base
+    // (`<owner>/*`) for a single 2-segment cross-plane call. The mock
+    // returns the last scripted response for overflow calls if the
+    // implementation ever fans out further.
     const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [] } }]);
     const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
 
     await tool.definition.execute("c1", { query: "x", planes: ["curated"], limit: 3 });
     const curatedOnly = calls.splice(0, calls.length);
-    // `planes: ["curated"]` → one or two 2-segment calls
-    // (primary base + shared pool), each with `planes: ["curated"]`.
     expect(curatedOnly.length).toBeGreaterThan(0);
     for (const call of curatedOnly) {
       const body = JSON.parse(call.body!);
       expect(body.planes).toEqual(["curated"]);
       expect(body.limit).toBe(3);
+      // 2-segment wildcard base: `<owner>/*`.
       expect(body.namespace.split("/")).toHaveLength(2);
+      expect(body.namespace.endsWith("/*")).toBe(true);
     }
 
     await tool.definition.execute("c2", { query: "x" });
-    // Default: 2-segment cross-plane calls. Primary base gets all
-    // three planes; shared base gets curated + concept.
     const defaultFanout = calls;
     expect(defaultFanout.length).toBeGreaterThan(0);
     for (const call of defaultFanout) {
       const body = JSON.parse(call.body!);
       expect(body.namespace.split("/")).toHaveLength(2);
+      expect(body.namespace.endsWith("/*")).toBe(true);
       expect(body.planes.length).toBeGreaterThanOrEqual(1);
       expect(body.limit).toBe(10);
     }
@@ -147,11 +146,13 @@ describe("createRecallTool", () => {
 
     await tool.definition.execute("c", { query: "x" });
 
-    // Cross-plane calls use 2-segment namespaces. Primary base is
-    // `eric/aoi`; shared pool is `eric/_shared`.
+    // Per ADR 0031, recall fans tenant-wide via `<owner>/*` — `eric/*`
+    // here, regardless of which presence the agent maps to. Wildcard
+    // expansion on the server covers `eric/aoi/*` AND `eric/_shared/*`
+    // in one call.
     for (const call of calls) {
       const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
+      expect(ns).toBe("eric/*");
     }
   });
 

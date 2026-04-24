@@ -249,12 +249,13 @@ describe("createPromptSupplement", () => {
 
     await supplement.refresh({ agentId: "aoi" });
 
-    // Cross-plane calls use 2-segment namespaces: primary base
-    // `eric/aoi` and shared pool `eric/_shared`.
+    // Per ADR 0031, refresh fans tenant-wide via `<owner>/*` — `eric/*`
+    // here. Server-side wildcard expansion subsumes both `eric/aoi/*`
+    // and `eric/_shared/*` in one call.
     expect(bodies.length).toBeGreaterThan(0);
     for (const body of bodies) {
       const ns: string = JSON.parse(body!).namespace;
-      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
+      expect(ns).toBe("eric/*");
     }
   });
 });

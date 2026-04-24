@@ -249,12 +249,14 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "x", agentSessionKey: "aoi" });
 
-    // Cross-plane calls use 2-segment namespaces. For agent "aoi"
-    // the primary base is `eric/aoi`; shared pools use `eric/_shared`.
+    // Per ADR 0031, supplement search fans tenant-wide via `<owner>/*` —
+    // `eric/*` here, regardless of which presence (`eric/openclaw`,
+    // `eric/aoi`) the agent maps to. Server-side wildcard expansion
+    // covers every channel under that tenant in one call.
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) {
       const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
+      expect(ns).toBe("eric/*");
     }
   });
 
@@ -274,12 +276,13 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "x" });
 
-    // Default presence "eric/openclaw"; cross-plane calls use the
-    // 2-segment base `eric/openclaw` or shared `eric/_shared`.
+    // Per ADR 0031, corpus search fans tenant-wide via `<owner>/*` —
+    // `eric/*` here. Server-side wildcard expansion subsumes both
+    // `eric/openclaw/*` and `eric/_shared/*` in one call.
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) {
       const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns === "eric/openclaw" || ns === "eric/_shared").toBe(true);
+      expect(ns).toBe("eric/*");
     }
   });
 

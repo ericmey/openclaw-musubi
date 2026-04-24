@@ -1,17 +1,23 @@
 /**
- * Build retrieve targets for the Musubi 2-segment cross-plane API.
+ * Build retrieve targets for the Musubi cross-plane API.
  *
- * The server accepts a 2-segment namespace (`tenant/presence`) plus a
- * `planes` array and expands each plane internally (`<namespace>/<plane>`),
- * merging results by score. This collapses N×M per-plane calls into
- * N calls where N is the number of unique base namespaces.
+ * Per Musubi ADR 0031 (wildcard namespace segments) and ADR 0030
+ * (agent-as-tenant), this plugin reads tenant-wide: a single 2-segment
+ * `tenant/*` namespace with a `planes` list spans every channel the
+ * agent has captured into. The server expands `*` against the live
+ * Qdrant payload and merges results by score.
  *
  * Typical case (default supplement planes):
- *   - base "eric/openclaw"  → planes ["curated", "concept"]
- *   - base "eric/_shared"   → planes ["curated", "concept"]
+ *   - base "nyla/*"  → planes ["curated", "concept"]
  *
- * The shared base is derived from `curatedReadScope` entries whose
- * prefix differs from the primary presence.
+ * `nyla/*` subsumes the tenant's per-channel slots (`nyla/voice/*`,
+ * `nyla/openclaw/*`) AND its `nyla/_shared/*` shared-knowledge slot —
+ * one HTTP call covers them all. Each result row carries its concrete
+ * stored namespace so callers can still tell *where* a memory came
+ * from ("on our last call", "in the Openclaw thread").
+ *
+ * Writes still target the channel-tagged 3-segment slot from
+ * `presence.namespaces.episodic`/etc — wildcards are read-only.
  */
 
 import type { PresenceContext } from "../presence/resolver.js";
@@ -31,28 +37,10 @@ export function buildRetrieveTargets(
   presence: PresenceContext,
   planes: readonly string[],
 ): RetrieveTarget[] {
-  const primaryBase = presence.presence;
+  // Derive the tenant from the resolved presence (`<owner>/<presence-id>`).
+  // Resolver guarantees a `/` so this split always has a usable [0].
+  const owner = presence.presence.split("/", 1)[0]!;
+  const tenantWildcardBase = `${owner}/*`;
 
-  const targets: RetrieveTarget[] = [{ baseNamespace: primaryBase, planes: [...planes] }];
-
-  // Shared namespaces are full 3-segment paths like "eric/_shared/curated".
-  // Extract unique bases (first two segments) and the planes they host.
-  const sharedBases = new Map<string, Set<string>>();
-  for (const ns of presence.namespaces.curatedReadScope) {
-    const parts = ns.split("/");
-    if (parts.length < 3) continue;
-    const [owner, shared, plane] = parts as [string, string, string, ...string[]];
-    const base = `${owner}/${shared}`;
-    if (base === primaryBase) continue;
-    if (!planes.includes(plane)) continue;
-    const set = sharedBases.get(base) ?? new Set<string>();
-    set.add(plane);
-    sharedBases.set(base, set);
-  }
-
-  for (const [baseNamespace, planeSet] of sharedBases) {
-    targets.push({ baseNamespace, planes: [...planeSet] });
-  }
-
-  return targets;
+  return [{ baseNamespace: tenantWildcardBase, planes: [...planes] }];
 }
