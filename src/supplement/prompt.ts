@@ -94,7 +94,7 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
         const header = SECTION_HEADERS[plane] ?? `**Musubi ${plane}:**`;
         lines.push(header);
         for (const item of items) {
-          const label = item.title ? `${item.title} (${item.source})` : item.source;
+          const label = item.title ? `${item.title} — ${item.source}` : item.source;
           lines.push(`- ${item.content} (${label})`);
         }
       }

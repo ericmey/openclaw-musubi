@@ -68,7 +68,7 @@ export function createRememberTool(options: CreateRememberToolOptions): Remember
 
         try {
           const response = await client.post<{ object_id?: string }>("/v1/episodic", {
-            // Canonical `CaptureRequest` (Musubi v0.4.0) accepts
+            // Canonical `CaptureRequest` (Musubi v1.0) accepts
             // {namespace, content, summary?, tags, importance, created_at?}.
             // Audit metadata folds into `tags` with prefixes so it
             // round-trips without requiring a canonical API extension;
