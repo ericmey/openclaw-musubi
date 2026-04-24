@@ -134,6 +134,8 @@ describe("resolvePresence", () => {
       token: "default-token",
       namespaces: {
         episodic: "eric/aoi/episodic",
+        thought: "eric/aoi/thought",
+        artifact: "eric/aoi/artifact",
         curatedReadScope: ["eric/aoi/curated", "eric/_shared/curated", "eric/_shared/concept"],
       },
     });
@@ -181,5 +183,20 @@ describe("resolvePresence", () => {
     const ctx = resolvePresence(config, { env: {} });
 
     expect(ctx.token).toBe("${MUSUBI_NOT_SET}");
+  });
+
+  it("expands lowercase and mixed-case env vars", () => {
+    const config = makeConfig({
+      core: {
+        baseUrl: "https://musubi.test",
+        token: "${my_token}",
+        perAgentTokens: { aoi: "${MUSUBI_TOKEN_AOI}" },
+      },
+      presence: { defaultId: "eric/openclaw", perAgent: { aoi: "eric/aoi" } },
+    });
+    const env = { my_token: "lowercase-ok", MUSUBI_TOKEN_AOI: "uppercase-ok" };
+
+    expect(resolvePresence(config, { env }).token).toBe("lowercase-ok");
+    expect(resolvePresence(config, { agentId: "aoi", env }).token).toBe("uppercase-ok");
   });
 });

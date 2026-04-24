@@ -58,13 +58,18 @@ export function createThinkTool(options: CreateThinkToolOptions): ThinkTool {
         try {
           const response = await client.post<{ object_id?: string }>("/v1/thoughts/send", {
             body: {
+              // Canonical ThoughtSendRequest requires a 3-segment
+              // `tenant/presence/thought` namespace. Plugin used to
+              // pass `presence.presence` (2 segments) which the
+              // server 403s as out-of-scope.
+              namespace: presence.namespaces.thought,
               from_presence: presence.presence,
               to_presence: params.toPresence,
-              namespace: presence.presence,
               content: params.content,
               channel: params.channel ?? DEFAULT_CHANNEL,
               importance: params.importance ?? DEFAULT_IMPORTANCE,
             },
+            token: presence.token,
           });
 
           const storedId = response?.object_id ?? "(no id)";

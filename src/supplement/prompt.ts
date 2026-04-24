@@ -5,6 +5,7 @@ import {
 } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "./retrieve-targets.js";
 
 /**
  * `MemoryPromptSectionBuilder` matching the OpenClaw SDK shape — see
@@ -109,27 +110,45 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
         return;
       }
 
-      try {
-        const response = await client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-          body: {
-            query_text: STANDING_CONTEXT_QUERY,
-            mode: "fast",
-            planes,
-            limit: cap,
-            namespace: presence.presence,
-          },
-        });
-        const next = (response.results ?? []).slice(0, cap).map(
-          (row): StandingContextItem => ({
-            plane: row.plane,
-            content: row.content,
-            source: row.namespace,
+      // Collapse per-plane fanout into 2-segment cross-plane calls.
+      const targets = buildRetrieveTargets(presence, planes);
+
+      const settled = await Promise.allSettled(
+        targets.map((t) =>
+          client.post<MusubiRetrieveResponse>("/v1/retrieve", {
+            body: {
+              namespace: t.baseNamespace,
+              planes: [...t.planes],
+              query_text: STANDING_CONTEXT_QUERY,
+              mode: "fast",
+              limit: cap,
+            },
+            token: presence.token,
           }),
-        );
-        cache = next;
-      } catch {
-        // Preserve stale cache on transient failure; better than going empty.
+        ),
+      );
+      if (settled.every((r) => r.status === "rejected")) {
+        // Complete failure — preserve stale cache instead of wiping.
+        return;
       }
+      const seen = new Set<string>();
+      const merged: MusubiRetrieveRow[] = [];
+      for (const result of settled) {
+        if (result.status !== "fulfilled") continue;
+        for (const row of result.value.results ?? []) {
+          if (seen.has(row.object_id)) continue;
+          seen.add(row.object_id);
+          merged.push(row);
+        }
+      }
+      merged.sort((a, b) => b.score - a.score);
+      cache = merged.slice(0, cap).map(
+        (row): StandingContextItem => ({
+          plane: row.plane,
+          content: row.content,
+          source: row.namespace,
+        }),
+      );
     },
 
     __cacheSize() {

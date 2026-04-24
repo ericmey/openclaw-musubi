@@ -2,6 +2,7 @@ import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
 import { resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "../supplement/retrieve-targets.js";
 import { RecallParameters, type RecallParams } from "./parameters.js";
 
 /**
@@ -72,28 +73,51 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
         }
 
         const limit = params.limit ?? DEFAULT_LIMIT;
-        const planes = params.planes ?? ["curated", "concept", "episodic", "artifact"];
 
-        try {
-          const response = await client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-            body: {
-              query_text: params.query,
-              mode: "deep",
-              planes,
-              limit,
-              namespace: presence.presence,
-            },
-          });
+        // Build planes list from caller filter or default readable set.
+        const defaultPlanes = ["curated", "concept", "episodic", "artifact"];
+        const callerPlanes = params.planes ? [...params.planes] : defaultPlanes;
 
-          const results = response.results ?? [];
-          if (results.length === 0) {
-            return toolText(`No Musubi results for "${params.query}".`);
-          }
+        // Collapse per-plane fanout into 2-segment cross-plane calls.
+        const targets = buildRetrieveTargets(presence, callerPlanes);
 
-          return toolText(formatResults(results));
-        } catch (err) {
-          return toolError(`Musubi recall failed: ${errorMessage(err)}`);
+        const settled = await Promise.allSettled(
+          targets.map((t) =>
+            client.post<MusubiRetrieveResponse>("/v1/retrieve", {
+              body: {
+                namespace: t.baseNamespace,
+                planes: [...t.planes],
+                query_text: params.query,
+                mode: "deep",
+                limit,
+              },
+              token: presence.token,
+            }),
+          ),
+        );
+        if (settled.every((r) => r.status === "rejected")) {
+          const firstErr =
+            settled[0]!.status === "rejected"
+              ? (settled[0] as PromiseRejectedResult).reason
+              : new Error("unknown");
+          return toolError(`Musubi recall failed: ${errorMessage(firstErr)}`);
         }
+        const seen = new Set<string>();
+        const merged: MusubiRetrieveRow[] = [];
+        for (const result of settled) {
+          if (result.status !== "fulfilled") continue;
+          for (const row of result.value.results ?? []) {
+            if (seen.has(row.object_id)) continue;
+            seen.add(row.object_id);
+            merged.push(row);
+          }
+        }
+        merged.sort((a, b) => b.score - a.score);
+        const results = merged.slice(0, limit);
+        if (results.length === 0) {
+          return toolText(`No Musubi results for "${params.query}".`);
+        }
+        return toolText(formatResults(results));
       },
     },
   };

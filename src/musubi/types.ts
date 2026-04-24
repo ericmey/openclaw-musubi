@@ -53,4 +53,7 @@ export type RequestOptions = {
 
   /** Override the client's default `requestTimeoutMs` for this call. */
   readonly timeoutMs?: number;
+
+  /** Override the client's default bearer token for this call. */
+  readonly token?: string;
 };

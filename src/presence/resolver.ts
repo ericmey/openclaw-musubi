@@ -14,6 +14,8 @@ export type PresenceContext = {
   readonly token: string;
   readonly namespaces: {
     readonly episodic: string;
+    readonly thought: string;
+    readonly artifact: string;
     readonly curatedReadScope: readonly string[];
   };
 };
@@ -42,7 +44,7 @@ export type ResolveOptions = {
 
 type PresenceConfig = Pick<MusubiConfig, "core" | "presence">;
 
-const ENV_VAR_PATTERN = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
+const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 export function resolvePresence(
   config: PresenceConfig,
@@ -99,6 +101,8 @@ export function resolvePresence(
     token: resolvedToken,
     namespaces: {
       episodic: `${resolvedPresence}/episodic`,
+      thought: `${resolvedPresence}/thought`,
+      artifact: `${resolvedPresence}/artifact`,
       curatedReadScope: [
         `${resolvedPresence}/curated`,
         `${owner}/_shared/curated`,

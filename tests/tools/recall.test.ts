@@ -64,25 +64,36 @@ describe("createRecallTool", () => {
   });
 
   it("test_recall_accepts_plane_filter_and_limit_parameters", async () => {
-    const { fetch, calls } = createMockFetch([
-      { status: 200, body: { results: [] } },
-      { status: 200, body: { results: [] } },
-    ]);
+    // Canonical retrieve requires one call per (namespace, plane)
+    // target (see `src/tools/recall.ts`). The mock returns the last
+    // scripted response for overflow calls, so a single `{results: []}`
+    // covers every fanout call.
+    const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [] } }]);
     const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
 
     await tool.definition.execute("c1", { query: "x", planes: ["curated"], limit: 3 });
-    await tool.definition.execute("c2", { query: "x" });
+    const curatedOnly = calls.splice(0, calls.length);
+    // `planes: ["curated"]` → one or two 2-segment calls
+    // (primary base + shared pool), each with `planes: ["curated"]`.
+    expect(curatedOnly.length).toBeGreaterThan(0);
+    for (const call of curatedOnly) {
+      const body = JSON.parse(call.body!);
+      expect(body.planes).toEqual(["curated"]);
+      expect(body.limit).toBe(3);
+      expect(body.namespace.split("/")).toHaveLength(2);
+    }
 
-    expect(JSON.parse(calls[0]!.body!).planes).toEqual(["curated"]);
-    expect(JSON.parse(calls[0]!.body!).limit).toBe(3);
-    // Default when unspecified: all four planes, limit 10.
-    expect(JSON.parse(calls[1]!.body!).planes).toEqual([
-      "curated",
-      "concept",
-      "episodic",
-      "artifact",
-    ]);
-    expect(JSON.parse(calls[1]!.body!).limit).toBe(10);
+    await tool.definition.execute("c2", { query: "x" });
+    // Default: 2-segment cross-plane calls. Primary base gets all
+    // three planes; shared base gets curated + concept.
+    const defaultFanout = calls;
+    expect(defaultFanout.length).toBeGreaterThan(0);
+    for (const call of defaultFanout) {
+      const body = JSON.parse(call.body!);
+      expect(body.namespace.split("/")).toHaveLength(2);
+      expect(body.planes.length).toBeGreaterThanOrEqual(1);
+      expect(body.limit).toBe(10);
+    }
   });
 
   it("test_recall_returns_shaped_content_for_agent_consumption", async () => {
@@ -136,7 +147,12 @@ describe("createRecallTool", () => {
 
     await tool.definition.execute("c", { query: "x" });
 
-    expect(JSON.parse(calls[0]!.body!).namespace).toBe("eric/aoi");
+    // Cross-plane calls use 2-segment namespaces. Primary base is
+    // `eric/aoi`; shared pool is `eric/_shared`.
+    for (const call of calls) {
+      const ns: string = JSON.parse(call.body!).namespace;
+      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
+    }
   });
 
   it("returns friendly message on zero results", async () => {

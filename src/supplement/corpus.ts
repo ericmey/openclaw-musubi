@@ -5,6 +5,7 @@ import {
 } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "./retrieve-targets.js";
 
 /**
  * Structural shape of a single result row consumed by OpenClaw's
@@ -116,20 +117,40 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
 
       const limit = Math.max(1, Math.min(params.maxResults ?? cap, cap));
 
-      try {
-        const response = await client.post<MusubiRetrieveResponse>("/v1/retrieve", {
-          body: {
-            query_text: params.query,
-            mode: "fast",
-            planes,
-            limit,
-            namespace: presence.presence,
-          },
-        });
-        return (response.results ?? []).map(toCorpusSearchResult);
-      } catch {
+      // Collapse per-plane fanout into 2-segment cross-plane calls.
+      // One call per unique base namespace, with all readable planes
+      // in the `planes` array. The server expands and merges internally.
+      const targets = buildRetrieveTargets(presence, planes);
+
+      const settled = await Promise.allSettled(
+        targets.map((t) =>
+          client.post<MusubiRetrieveResponse>("/v1/retrieve", {
+            body: {
+              namespace: t.baseNamespace,
+              planes: [...t.planes],
+              query_text: params.query,
+              mode: "fast",
+              limit,
+            },
+            token: presence.token,
+          }),
+        ),
+      );
+      const seen = new Set<string>();
+      const merged: MusubiRetrieveRow[] = [];
+      for (const result of settled) {
+        if (result.status !== "fulfilled") continue;
+        for (const row of result.value.results ?? []) {
+          if (seen.has(row.object_id)) continue;
+          seen.add(row.object_id);
+          merged.push(row);
+        }
+      }
+      if (merged.length === 0 && settled.every((r) => r.status === "rejected")) {
         return [];
       }
+      merged.sort((a, b) => b.score - a.score);
+      return merged.slice(0, limit).map(toCorpusSearchResult);
     },
 
     async get(params) {
@@ -138,8 +159,9 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
       const [plane, id] = splitLookup(params.lookup);
       if (plane === undefined || id === undefined) return null;
 
+      let presence;
       try {
-        resolvePresence(config, { agentId: params.agentSessionKey });
+        presence = resolvePresence(config, { agentId: params.agentSessionKey });
       } catch {
         return null;
       }
@@ -147,8 +169,23 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
       const path = endpointForPlane(plane, id);
       if (path === undefined) return null;
 
+      // Derive the correct namespace for the ?namespace= query param.
+      const ns =
+        plane === "episodic"
+          ? presence.namespaces.episodic
+          : plane === "thought"
+            ? presence.namespaces.thought
+            : plane === "artifact"
+              ? presence.namespaces.artifact
+              : (presence.namespaces.curatedReadScope.find((n) => n.endsWith(`/${plane}`)) ??
+                presence.namespaces.episodic);
+
       try {
-        const obj = await client.get<MusubiObjectFetchResponse>(path);
+        const obj = await client.getWithQuery<MusubiObjectFetchResponse>(
+          path,
+          { namespace: ns },
+          { token: presence.token },
+        );
         return toCorpusGetResult(obj, plane, params.lookup);
       } catch {
         return null;

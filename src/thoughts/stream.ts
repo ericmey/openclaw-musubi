@@ -52,6 +52,8 @@ export type CreateThoughtStreamOptions = {
   readonly stableResetMs?: number;
   /** Override `include` query param. Default omitted (server applies default). */
   readonly include?: string;
+  /** Upper bound on reconnect backoff. Defaults to 60s. */
+  readonly maxBackoffMs?: number;
 };
 
 export type ThoughtStream = {
@@ -78,6 +80,7 @@ export function createThoughtStream(options: CreateThoughtStreamOptions): Though
   const now = options.now ?? Date.now;
   const pingTimeoutMs = options.pingTimeoutMs ?? DEFAULT_PING_TIMEOUT_MS;
   const stableResetMs = options.stableResetMs ?? DEFAULT_STABLE_RESET_MS;
+  const maxBackoffMs = options.maxBackoffMs;
   const baseUrl = config.core.baseUrl.replace(/\/+$/, "");
 
   let running = false;
@@ -122,6 +125,7 @@ export function createThoughtStream(options: CreateThoughtStreamOptions): Though
           setAbortController: (c) => {
             abortController = c;
           },
+          now,
         });
 
         if (outcome.kind === "auth-fail") {
@@ -143,10 +147,14 @@ export function createThoughtStream(options: CreateThoughtStreamOptions): Though
           attempt = 0;
         }
 
-        const delayMs =
-          outcome.kind === "close" && outcome.reconnectAfterMs !== undefined
-            ? outcome.reconnectAfterMs
-            : nextSseBackoffMs(attempt, { random });
+        let delayMs: number;
+        if (outcome.kind === "close" && outcome.reconnectAfterMs !== undefined) {
+          delayMs = outcome.reconnectAfterMs;
+        } else if (outcome.kind === "http-error" && outcome.retryAfterMs !== undefined) {
+          delayMs = outcome.retryAfterMs;
+        } else {
+          delayMs = nextSseBackoffMs(attempt, { random, maxDelayMs: maxBackoffMs });
+        }
         attempt += 1;
 
         await sleep(delayMs);
@@ -165,7 +173,7 @@ function buildStreamUrl(baseUrl: string, presence: string, include?: string): st
 
 type ConnectionOutcome =
   | { kind: "auth-fail"; status: 401 | 403; connected: false }
-  | { kind: "http-error"; status: number; connected: false }
+  | { kind: "http-error"; status: number; connected: false; retryAfterMs?: number }
   | { kind: "network-error"; connected: false }
   | { kind: "stream-error"; connected: true }
   | { kind: "ping-gap-timeout"; connected: true }
@@ -182,6 +190,7 @@ type ConnectionContext = {
   handlers: ThoughtStreamHandlers;
   getRunning: () => boolean;
   setAbortController: (controller: AbortController) => void;
+  now: () => number;
 };
 
 async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutcome> {
@@ -226,7 +235,11 @@ async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutco
   }
   if (!response.ok || !response.body) {
     if (pingTimer) clearTimeout(pingTimer);
-    return { kind: "http-error", status: response.status, connected: false };
+    const retryAfterMs =
+      response.status === 503
+        ? parseRetryAfter(response.headers.get("Retry-After"), ctx.now)
+        : undefined;
+    return { kind: "http-error", status: response.status, connected: false, retryAfterMs };
   }
 
   resetPingTimer();
@@ -290,7 +303,7 @@ async function* parseSseStream(body: ReadableStream<Uint8Array>): AsyncGenerator
         buffer += decoder.decode(value, { stream: !done });
       }
 
-      const lines = buffer.split(/\r?\n/);
+      const lines = buffer.split(/\r\n?|\n/);
       buffer = lines.pop() ?? "";
 
       for (const line of lines) {
@@ -329,4 +342,17 @@ function safeJsonParse<T>(raw: string): T | undefined {
   } catch {
     return undefined;
   }
+}
+
+function parseRetryAfter(header: string | null, now: () => number = Date.now): number | undefined {
+  if (header === null) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.round(seconds * 1000);
+  }
+  const dateMs = Date.parse(header);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, dateMs - now());
+  }
+  return undefined;
 }

@@ -29,6 +29,12 @@ export type CreateRememberToolOptions = {
   readonly client: MusubiClient;
   readonly config: MusubiConfig;
   readonly agentId?: string;
+  /**
+   * Optional clock override — retained for test-fixture compatibility.
+   * Not consulted by the current canonical-shape body (which lets the
+   * server assign `created_at` on ingest); kept for back-compat with
+   * callers that still pass one.
+   */
   readonly now?: () => Date;
 };
 
@@ -42,7 +48,6 @@ const CAPTURE_SOURCE = "openclaw-agent-remember";
 
 export function createRememberTool(options: CreateRememberToolOptions): RememberTool {
   const { client, config, agentId } = options;
-  const now = options.now ?? (() => new Date());
 
   return {
     recommendedOptional: true,
@@ -62,18 +67,21 @@ export function createRememberTool(options: CreateRememberToolOptions): Remember
         const idempotencyKey = params.idempotencyKey ?? `openclaw-remember:${toolCallId}`;
 
         try {
-          const response = await client.post<{ object_id?: string }>("/v1/episodic", {
+          const response = await client.post<{ object_id?: string }>("/v1/memories", {
+            // Canonical `CaptureRequest` (Musubi v0.4.0) accepts
+            // {namespace, content, summary?, tags, importance, created_at?}.
+            // Audit metadata folds into `tags` with prefixes so it
+            // round-trips without requiring a canonical API extension;
+            // see `src/capture/translate.ts::toCanonicalCapture` for
+            // the matching shape used by the passive capture mirror.
             body: {
               namespace: presence.namespaces.episodic,
               content: params.content,
-              capture_source: CAPTURE_SOURCE,
-              source_ref: toolCallId,
-              timestamp: now().toISOString(),
               importance: params.importance ?? DEFAULT_IMPORTANCE,
-              topics: params.topics ?? [],
-              metadata: {},
+              tags: [...(params.topics ?? []), `src:${CAPTURE_SOURCE}`, `ref:${toolCallId}`],
             },
             idempotencyKey,
+            token: presence.token,
           });
 
           const storedId = response?.object_id ?? "(no id)";

@@ -42,7 +42,7 @@ function makeClient(fetch: FetchLike) {
 
 describe("createThinkTool", () => {
   it("test_think_registered_with_to_presence_and_content_parameters", () => {
-    const { fetch } = createMockFetch([{ status: 200, body: {} }]);
+    const { fetch } = createMockFetch([{ status: 202, body: {} }]);
     const tool = createThinkTool({ client: makeClient(fetch), config: makeConfig() });
     expect(tool.definition.name).toBe("musubi_think");
     // TypeBox schema includes both required fields.
@@ -54,7 +54,7 @@ describe("createThinkTool", () => {
   });
 
   it("test_think_posts_to_thoughts_send_endpoint", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200, body: { object_id: "ksuid-sent" } }]);
+    const { fetch, calls } = createMockFetch([{ status: 202, body: { object_id: "ksuid-sent" } }]);
     const tool = createThinkTool({ client: makeClient(fetch), config: makeConfig() });
 
     await tool.definition.execute("call", {
@@ -66,7 +66,7 @@ describe("createThinkTool", () => {
   });
 
   it("test_think_carries_sending_agents_presence_as_from", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200, body: {} }]);
+    const { fetch, calls } = createMockFetch([{ status: 202, body: {} }]);
     const tool = createThinkTool({
       client: makeClient(fetch),
       config: makeConfig({
@@ -83,7 +83,10 @@ describe("createThinkTool", () => {
     const body = JSON.parse(calls[0]!.body!);
     expect(body.from_presence).toBe("eric/aoi");
     expect(body.to_presence).toBe("eric/rin");
-    expect(body.namespace).toBe("eric/aoi");
+    // Canonical ThoughtSendRequest requires a 3-segment namespace
+    // (`tenant/presence/thought`); `from_presence` stays as the
+    // 2-segment presence id the plugin received.
+    expect(body.namespace).toBe("eric/aoi/thought");
     expect(body.content).toBe("pick up the deploy please");
   });
 
@@ -140,8 +143,8 @@ describe("test_all_tools_honor_approval_hooks_when_required", () => {
     // Shared mock — each tool is called in isolation.
     const responses = [
       { status: 200, body: { results: [] } }, // recall
-      { status: 200, body: { object_id: "x" } }, // remember
-      { status: 200, body: { object_id: "y" } }, // think
+      { status: 202, body: { object_id: "x" } }, // remember
+      { status: 202, body: { object_id: "y" } }, // think
     ];
     const { fetch } = createMockFetch(responses);
     const { createRecallTool } = await import("../../src/tools/recall.js");

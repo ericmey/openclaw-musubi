@@ -85,7 +85,7 @@ describe("createCaptureMirror", () => {
     // via api.on("agent_end", ...). This test asserts the handler surface
     // exists and is callable; integration with api.on is the wiring slice's
     // responsibility (per the slice issue claim comment).
-    const { fetch } = createMockFetch([{ status: 200 }]);
+    const { fetch } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -97,7 +97,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_posts_single_event_to_episodic_endpoint", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -106,18 +106,21 @@ describe("createCaptureMirror", () => {
     await mirror.handleEvent({ id: "evt-1", content: "hello" });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic");
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/memories");
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.headers["Idempotency-Key"]).toBe("openclaw-mirror:evt-1");
     const body = JSON.parse(calls[0]!.body!);
     expect(body.namespace).toBe("eric/openclaw/episodic");
     expect(body.content).toBe("hello");
-    expect(body.source_ref).toBe("evt-1");
-    expect(body.capture_source).toBe("openclaw-agent-end");
+    // Audit metadata folds into `tags` with prefixes; canonical
+    // CaptureRequest does not persist `source_ref` / `capture_source`
+    // as first-class fields.
+    expect(body.tags).toContain("ref:evt-1");
+    expect(body.tags).toContain("src:openclaw-agent-end");
   });
 
   it("test_mirror_batches_events_when_openclaw_flushes_multiple", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -130,14 +133,17 @@ describe("createCaptureMirror", () => {
     ]);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic/batch");
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/memories/batch");
     const body = JSON.parse(calls[0]!.body!);
+    // Canonical batch shape: {namespace, items[]}. Each item carries
+    // content/importance/tags — no per-item namespace or idempotency
+    // key on the wire.
+    expect(body.namespace).toBe("eric/openclaw/episodic");
     expect(body.items).toHaveLength(3);
-    expect(body.idempotency_keys).toEqual([
-      "openclaw-mirror:evt-1",
-      "openclaw-mirror:evt-2",
-      "openclaw-mirror:evt-3",
-    ]);
+    expect(body.items[0].content).toBe("first");
+    expect(calls[0]?.headers["Idempotency-Key"]).toBe(
+      "batch:openclaw-mirror:evt-1,openclaw-mirror:evt-2,openclaw-mirror:evt-3",
+    );
   });
 
   it("test_mirror_does_not_block_openclaw_write_on_musubi_failure", async () => {
@@ -170,7 +176,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_carries_agent_presence_through_to_namespace", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig({
@@ -185,7 +191,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_is_disabled_when_config_mirrorOpenClawMemory_is_false", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig({ capture: { mirrorOpenClawMemory: false } }),
@@ -199,7 +205,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_idempotency_key_is_stable_per_source_memory_id", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }, { status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }, { status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -213,7 +219,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("skips events with empty content", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),

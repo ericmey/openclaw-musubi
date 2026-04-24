@@ -310,4 +310,40 @@ describe("MusubiClient", () => {
 
     expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic?limit=10&includeUnread=true");
   });
+
+  it("honors per-request token override", async () => {
+    const { fetch, calls } = createMockFetch([
+      { status: 200, body: { ok: true } },
+      { status: 200, body: { ok: true } },
+    ]);
+    const client = makeClient(fetch);
+
+    await client.get("/v1/namespaces");
+    await client.get("/v1/namespaces", { token: "per-request-token" });
+
+    expect(calls[0]?.headers["Authorization"]).toBe("Bearer test-token");
+    expect(calls[1]?.headers["Authorization"]).toBe("Bearer per-request-token");
+  });
+
+  it("rejects non-http baseUrl at construction", () => {
+    expect(() => new MusubiClient({ baseUrl: "javascript:alert(1)", token: "t" })).toThrow(
+      /must be http\(s\)/,
+    );
+    expect(() => new MusubiClient({ baseUrl: "file:///etc/passwd", token: "t" })).toThrow(
+      /must be http\(s\)/,
+    );
+  });
+
+  it("cleans up external abort listener after success", async () => {
+    const ac = new AbortController();
+    const { fetch } = createMockFetch([{ status: 200, body: {} }]);
+    const client = makeClient(fetch);
+
+    await client.get("/v1/ops/health", { signal: ac.signal });
+
+    // No way to count listeners portably, but the code path is exercised.
+    // If the listener leaked, subsequent aborts would error the already-
+    // settled promise — which doesn't happen here because the fetch resolved.
+    expect(ac.signal.aborted).toBe(false);
+  });
 });

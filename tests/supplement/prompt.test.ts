@@ -249,6 +249,12 @@ describe("createPromptSupplement", () => {
 
     await supplement.refresh({ agentId: "aoi" });
 
-    expect(JSON.parse(bodies[0]!).namespace).toBe("eric/aoi");
+    // Cross-plane calls use 2-segment namespaces: primary base
+    // `eric/aoi` and shared pool `eric/_shared`.
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      const ns: string = JSON.parse(body!).namespace;
+      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
+    }
   });
 });

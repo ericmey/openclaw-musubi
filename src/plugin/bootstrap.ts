@@ -161,10 +161,10 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   // `agent_end` → `capture-mirror.handleEvent`. Failures are swallowed
   // inside the mirror so a Musubi outage never blocks OpenClaw's own
   // memory write (ADR-0001).
-  api.on("agent_end", (async (event: unknown, _ctx: unknown) => {
+  api.on("agent_end", ((event: unknown, _ctx: unknown) => {
     const captureEvent = translateAgentEndEvent(event);
     if (captureEvent === undefined) return;
-    await captureMirror.handleEvent(captureEvent);
+    void captureMirror.handleEvent(captureEvent);
   }) as unknown as (...args: unknown[]) => unknown);
 
   // 5. Start long-lived workers. `supplement.enabled !== false` →
@@ -197,7 +197,12 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   if (thoughtsEnabled) {
     const streamFactory =
       options.thoughtStreamFactory ??
-      ((args) => createThoughtStream({ config: args.config, fetch: args.fetch }));
+      ((args) =>
+        createThoughtStream({
+          config: args.config,
+          fetch: args.fetch,
+          maxBackoffMs: config.thoughts?.reconnect?.maxBackoffMs,
+        }));
     const stream = streamFactory({ config, fetch: options.fetch });
     // start() enters the reconnect loop; we don't await it (it blocks
     // while running and resolves only on stop()).
@@ -233,6 +238,7 @@ function translateAgentEndEvent(event: unknown):
       id: string;
       content: string;
       timestamp?: string;
+      agentId?: string;
     }
   | undefined {
   if (!event || typeof event !== "object") return undefined;
@@ -240,6 +246,7 @@ function translateAgentEndEvent(event: unknown):
     messages?: unknown[];
     runId?: unknown;
     sessionId?: unknown;
+    agentId?: unknown;
   };
   if (!Array.isArray(e.messages) || e.messages.length === 0) return undefined;
 
@@ -251,7 +258,8 @@ function translateAgentEndEvent(event: unknown):
     (typeof e.runId === "string" && e.runId) ||
     (typeof e.sessionId === "string" && e.sessionId) ||
     `agent_end-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  return { id, content };
+  const agentId = typeof e.agentId === "string" ? e.agentId : undefined;
+  return { id, content, agentId };
 }
 
 function extractMessageText(msg: unknown): string | undefined {

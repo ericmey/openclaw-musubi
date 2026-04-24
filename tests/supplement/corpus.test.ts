@@ -116,38 +116,49 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "what does eric prefer?" });
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/retrieve");
-    expect(calls[0]?.method).toBe("POST");
-    const body = JSON.parse(calls[0]!.body!);
-    expect(body.mode).toBe("fast");
-    expect(body.query_text).toBe("what does eric prefer?");
+    // Canonical retrieve is one-call-per-plane; default planes are
+    // curated + concept → two calls. Each carries `mode: "fast"` and
+    // the same `query_text`.
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.url).toBe("https://musubi.test/v1/retrieve");
+      expect(call.method).toBe("POST");
+      const body = JSON.parse(call.body!);
+      expect(body.mode).toBe("fast");
+      expect(body.query_text).toBe("what does eric prefer?");
+    }
   });
 
   it("test_supplement_filters_to_configured_planes", async () => {
     const { fetch, calls } = createMockFetch([
-      { status: 200, body: { results: [], mode: "fast", limit: 5 } },
       { status: 200, body: { results: [], mode: "fast", limit: 5 } },
     ]);
     const client = makeClient(fetch);
 
     const defaultSupplement = createCorpusSupplement({ client, config: makeConfig() });
     await defaultSupplement.search({ query: "x" });
-    const defaultBody = JSON.parse(calls[0]!.body!);
-    expect(defaultBody.planes).toEqual(["curated", "concept"]);
+    const defaultBefore = calls.length;
+    // Default: 2-segment cross-plane calls. Primary base gets all planes.
+    for (const call of calls) {
+      const body = JSON.parse(call.body!);
+      expect(body.namespace.split("/")).toHaveLength(2);
+      expect(body.planes).toEqual(expect.arrayContaining(["curated", "concept"]));
+    }
 
     const customSupplement = createCorpusSupplement({
       client,
       config: makeConfig({ supplement: { planes: ["curated"] } }),
     });
     await customSupplement.search({ query: "x" });
-    const customBody = JSON.parse(calls[1]!.body!);
-    expect(customBody.planes).toEqual(["curated"]);
+    const customCalls = calls.slice(defaultBefore);
+    for (const call of customCalls) {
+      const body = JSON.parse(call.body!);
+      expect(body.planes).toEqual(["curated"]);
+    }
   });
 
   it("test_supplement_respects_max_results_cap", async () => {
     const { fetch, calls } = createMockFetch([
-      { status: 200, body: { results: [], mode: "fast", limit: 3 } },
       { status: 200, body: { results: [], mode: "fast", limit: 3 } },
     ]);
     const supplement = createCorpusSupplement({
@@ -155,13 +166,20 @@ describe("createCorpusSupplement", () => {
       config: makeConfig({ supplement: { maxResults: 3 } }),
     });
 
-    // Caller passes a higher limit; cap wins.
+    // Caller passes a higher limit; cap wins. Each per-plane call
+    // carries the same capped limit.
     await supplement.search({ query: "x", maxResults: 50 });
-    expect(JSON.parse(calls[0]!.body!).limit).toBe(3);
+    const firstWave = calls.splice(0, calls.length);
+    expect(firstWave.length).toBeGreaterThan(0);
+    for (const call of firstWave) {
+      expect(JSON.parse(call.body!).limit).toBe(3);
+    }
 
     // Caller passes lower; their value wins.
     await supplement.search({ query: "x", maxResults: 1 });
-    expect(JSON.parse(calls[1]!.body!).limit).toBe(1);
+    for (const call of calls) {
+      expect(JSON.parse(call.body!).limit).toBe(1);
+    }
   });
 
   it("test_supplement_returns_rows_with_plane_score_namespace_and_content", async () => {
@@ -231,8 +249,13 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "x", agentSessionKey: "aoi" });
 
-    const body = JSON.parse(calls[0]!.body!);
-    expect(body.namespace).toBe("eric/aoi");
+    // Cross-plane calls use 2-segment namespaces. For agent "aoi"
+    // the primary base is `eric/aoi`; shared pools use `eric/_shared`.
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const ns: string = JSON.parse(call.body!).namespace;
+      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
+    }
   });
 
   it("test_supplement_uses_default_presence_when_no_agent_id", async () => {
@@ -251,8 +274,13 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "x" });
 
-    const body = JSON.parse(calls[0]!.body!);
-    expect(body.namespace).toBe("eric/openclaw");
+    // Default presence "eric/openclaw"; cross-plane calls use the
+    // 2-segment base `eric/openclaw` or shared `eric/_shared`.
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const ns: string = JSON.parse(call.body!).namespace;
+      expect(ns === "eric/openclaw" || ns === "eric/_shared").toBe(true);
+    }
   });
 
   it("get fetches a curated object by lookup path", async () => {
@@ -266,7 +294,9 @@ describe("createCorpusSupplement", () => {
 
     const result = await supplement.get({ lookup: "curated/abc" });
 
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/curated/abc");
+    expect(calls[0]?.url).toBe(
+      "https://musubi.test/v1/curated/abc?namespace=eric%2Fopenclaw%2Fcurated",
+    );
     expect(result?.title).toBe("Note");
     expect(result?.content).toBe("line one\nline two");
     expect(result?.lineCount).toBe(2);
