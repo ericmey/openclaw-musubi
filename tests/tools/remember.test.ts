@@ -102,7 +102,7 @@ describe("createRememberTool", () => {
   });
 
   it("test_remember_idempotent_on_client_supplied_id", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }, { status: 200 }, { status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }, { status: 202 }, { status: 202 }]);
     const tool = createRememberTool({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -122,7 +122,7 @@ describe("createRememberTool", () => {
   });
 
   it("defaults importance to 7 (higher than passive capture's 5)", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const tool = createRememberTool({
       client: makeClient(fetch),
       config: makeConfig(),

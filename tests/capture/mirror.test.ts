@@ -85,7 +85,7 @@ describe("createCaptureMirror", () => {
     // via api.on("agent_end", ...). This test asserts the handler surface
     // exists and is callable; integration with api.on is the wiring slice's
     // responsibility (per the slice issue claim comment).
-    const { fetch } = createMockFetch([{ status: 200 }]);
+    const { fetch } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -97,7 +97,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_posts_single_event_to_episodic_endpoint", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -120,7 +120,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_batches_events_when_openclaw_flushes_multiple", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -176,7 +176,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_carries_agent_presence_through_to_namespace", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig({
@@ -191,7 +191,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_is_disabled_when_config_mirrorOpenClawMemory_is_false", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig({ capture: { mirrorOpenClawMemory: false } }),
@@ -205,7 +205,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("test_mirror_idempotency_key_is_stable_per_source_memory_id", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }, { status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }, { status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -219,7 +219,7 @@ describe("createCaptureMirror", () => {
   });
 
   it("skips events with empty content", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200 }]);
+    const { fetch, calls } = createMockFetch([{ status: 202 }]);
     const mirror = createCaptureMirror({
       client: makeClient(fetch),
       config: makeConfig(),

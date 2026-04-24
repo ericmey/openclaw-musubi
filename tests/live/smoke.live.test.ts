@@ -5,7 +5,7 @@
  *
  * To run:
  *
- *     MUSUBI_LIVE_BASE_URL=http://musubi.mey.house:8100/v1 \
+ *     MUSUBI_LIVE_BASE_URL=http://musubi.mey.house:8100 \
  *     MUSUBI_LIVE_TOKEN=<harness-bearer> \
  *     MUSUBI_LIVE_NS_ROOT=harness/v2-smoke \
  *     pnpm test -- tests/live

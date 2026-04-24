@@ -161,10 +161,10 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   // `agent_end` → `capture-mirror.handleEvent`. Failures are swallowed
   // inside the mirror so a Musubi outage never blocks OpenClaw's own
   // memory write (ADR-0001).
-  api.on("agent_end", (async (event: unknown, _ctx: unknown) => {
+  api.on("agent_end", ((event: unknown, _ctx: unknown) => {
     const captureEvent = translateAgentEndEvent(event);
     if (captureEvent === undefined) return;
-    await captureMirror.handleEvent(captureEvent);
+    void captureMirror.handleEvent(captureEvent);
   }) as unknown as (...args: unknown[]) => unknown);
 
   // 5. Start long-lived workers. `supplement.enabled !== false` →
