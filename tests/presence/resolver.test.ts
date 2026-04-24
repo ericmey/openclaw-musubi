@@ -135,6 +135,7 @@ describe("resolvePresence", () => {
       namespaces: {
         episodic: "eric/aoi/episodic",
         thought: "eric/aoi/thought",
+        artifact: "eric/aoi/artifact",
         curatedReadScope: ["eric/aoi/curated", "eric/_shared/curated", "eric/_shared/concept"],
       },
     });

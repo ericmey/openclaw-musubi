@@ -10,8 +10,8 @@ import {
 } from "./errors.js";
 import { DEFAULT_RETRY_POLICY, nextDelayMs, type RetryPolicy } from "./retry.js";
 import type { ClientOptions, FetchLike, HttpMethod, RequestOptions } from "./types.js";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "../config.js";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
 const AUTH_HEADER = "Authorization";
 const REQUEST_ID_HEADER = "X-Request-Id";
 const IDEMPOTENCY_HEADER = "Idempotency-Key";
@@ -58,7 +58,7 @@ export class MusubiClient {
     this.#token = options.token;
     this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.#retry = { ...DEFAULT_RETRY_POLICY, ...(options.retry ?? {}) };
-    this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#generateRequestId = options.generateRequestId ?? defaultIdGenerator;
     this.#generateIdempotencyKey = options.generateIdempotencyKey ?? defaultIdGenerator;
     this.#sleep = options.sleep ?? defaultSleep;

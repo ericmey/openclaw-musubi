@@ -15,6 +15,7 @@ export type PresenceContext = {
   readonly namespaces: {
     readonly episodic: string;
     readonly thought: string;
+    readonly artifact: string;
     readonly curatedReadScope: readonly string[];
   };
 };
@@ -101,6 +102,7 @@ export function resolvePresence(
     namespaces: {
       episodic: `${resolvedPresence}/episodic`,
       thought: `${resolvedPresence}/thought`,
+      artifact: `${resolvedPresence}/artifact`,
       curatedReadScope: [
         `${resolvedPresence}/curated`,
         `${owner}/_shared/curated`,
