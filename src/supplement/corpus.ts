@@ -175,13 +175,17 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
           ? presence.namespaces.episodic
           : plane === "thought"
             ? presence.namespaces.thought
-            : (presence.namespaces.curatedReadScope.find((n) => n.endsWith(`/${plane}`)) ??
-              presence.namespaces.episodic);
+            : plane === "artifact"
+              ? presence.namespaces.artifact
+              : (presence.namespaces.curatedReadScope.find((n) => n.endsWith(`/${plane}`)) ??
+                presence.namespaces.episodic);
 
       try {
-        const obj = await client.getWithQuery<MusubiObjectFetchResponse>(path, {
-          namespace: ns,
-        });
+        const obj = await client.getWithQuery<MusubiObjectFetchResponse>(
+          path,
+          { namespace: ns },
+          { token: presence.token },
+        );
         return toCorpusGetResult(obj, plane, params.lookup);
       } catch {
         return null;

@@ -125,6 +125,7 @@ export function createThoughtStream(options: CreateThoughtStreamOptions): Though
           setAbortController: (c) => {
             abortController = c;
           },
+          now,
         });
 
         if (outcome.kind === "auth-fail") {
@@ -189,6 +190,7 @@ type ConnectionContext = {
   handlers: ThoughtStreamHandlers;
   getRunning: () => boolean;
   setAbortController: (controller: AbortController) => void;
+  now: () => number;
 };
 
 async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutcome> {
@@ -234,7 +236,9 @@ async function runOneConnection(ctx: ConnectionContext): Promise<ConnectionOutco
   if (!response.ok || !response.body) {
     if (pingTimer) clearTimeout(pingTimer);
     const retryAfterMs =
-      response.status === 503 ? parseRetryAfter(response.headers.get("Retry-After")) : undefined;
+      response.status === 503
+        ? parseRetryAfter(response.headers.get("Retry-After"), ctx.now)
+        : undefined;
     return { kind: "http-error", status: response.status, connected: false, retryAfterMs };
   }
 
@@ -340,7 +344,7 @@ function safeJsonParse<T>(raw: string): T | undefined {
   }
 }
 
-function parseRetryAfter(header: string | null): number | undefined {
+function parseRetryAfter(header: string | null, now: () => number = Date.now): number | undefined {
   if (header === null) return undefined;
   const seconds = Number(header);
   if (Number.isFinite(seconds) && seconds >= 0) {
@@ -348,7 +352,7 @@ function parseRetryAfter(header: string | null): number | undefined {
   }
   const dateMs = Date.parse(header);
   if (Number.isFinite(dateMs)) {
-    return Math.max(0, dateMs - Date.now());
+    return Math.max(0, dateMs - now());
   }
   return undefined;
 }

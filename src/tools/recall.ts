@@ -75,7 +75,7 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
         const limit = params.limit ?? DEFAULT_LIMIT;
 
         // Build planes list from caller filter or default readable set.
-        const defaultPlanes = ["curated", "concept", "episodic"];
+        const defaultPlanes = ["curated", "concept", "episodic", "artifact"];
         const callerPlanes = params.planes ? [...params.planes] : defaultPlanes;
 
         // Collapse per-plane fanout into 2-segment cross-plane calls.

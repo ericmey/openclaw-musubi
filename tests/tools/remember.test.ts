@@ -52,7 +52,7 @@ const FIXED_NOW = () => new Date("2026-04-20T05:00:00.000Z");
 
 describe("createRememberTool", () => {
   it("test_remember_accepts_content_importance_topics", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200, body: { object_id: "stored-1" } }]);
+    const { fetch, calls } = createMockFetch([{ status: 202, body: { object_id: "stored-1" } }]);
     const tool = createRememberTool({
       client: makeClient(fetch),
       config: makeConfig(),
@@ -76,7 +76,7 @@ describe("createRememberTool", () => {
   });
 
   it("test_remember_posts_to_memories_with_presence_namespace", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200, body: { object_id: "stored" } }]);
+    const { fetch, calls } = createMockFetch([{ status: 202, body: { object_id: "stored" } }]);
     const tool = createRememberTool({
       client: makeClient(fetch),
       config: makeConfig({

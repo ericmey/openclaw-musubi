@@ -83,28 +83,32 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
       // One namespace per batch — the canonical `/v1/memories/batch`
       // endpoint takes a single top-level `namespace` and a list of
       // `items` rather than repeating the namespace per row. Group
-      // events by their resolved namespace (and token) before dispatching.
-      const byNamespace = new Map<
+      // events by their resolved (namespace, token) pair before dispatching
+      // so per-agent token isolation is preserved even when two agents
+      // share a namespace mapping.
+      const byKey = new Map<
         string,
-        { items: CanonicalCaptureBody[]; keys: string[]; token: string }
+        { namespace: string; items: CanonicalCaptureBody[]; keys: string[]; token: string }
       >();
       for (const event of events) {
         const resolved = resolveOrSkip(event, config, now, logger);
         if (resolved === undefined) continue;
         const { presence, payload } = resolved;
         const canonical = toCanonicalCapture(payload);
-        const bucket = byNamespace.get(canonical.namespace) ?? {
+        const key = `${canonical.namespace}::${presence.token}`;
+        const bucket = byKey.get(key) ?? {
+          namespace: canonical.namespace,
           items: [],
           keys: [],
           token: presence.token,
         };
         bucket.items.push(canonical);
         bucket.keys.push(deriveIdempotencyKey(event));
-        byNamespace.set(canonical.namespace, bucket);
+        byKey.set(key, bucket);
       }
-      if (byNamespace.size === 0) return;
+      if (byKey.size === 0) return;
 
-      for (const [namespace, bucket] of byNamespace) {
+      for (const [, bucket] of byKey) {
         const items = bucket.items.map((c) => ({
           content: c.content,
           importance: c.importance,
@@ -112,13 +116,13 @@ export function createCaptureMirror(options: CreateCaptureMirrorOptions): Captur
         }));
         try {
           await client.post("/v1/memories/batch", {
-            body: { namespace, items },
+            body: { namespace: bucket.namespace, items },
             idempotencyKey: `batch:${bucket.keys.join(",")}`,
             token: bucket.token,
           });
         } catch (err) {
           logger.warn("musubi: mirror handleBatch failed; OpenClaw write unaffected", {
-            namespace,
+            namespace: bucket.namespace,
             batch_size: bucket.items.length,
             error: errorMessage(err),
           });
