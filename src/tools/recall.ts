@@ -2,6 +2,7 @@ import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
 import { resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "../supplement/retrieve-targets.js";
 import { RecallParameters, type RecallParams } from "./parameters.js";
 
 /**
@@ -72,48 +73,20 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
         }
 
         const limit = params.limit ?? DEFAULT_LIMIT;
-        // Canonical `/v1/retrieve` requires a 3-segment namespace
-        // (`tenant/presence/plane`) and the `planes` field is a
-        // collection fanout whose payload filter uses that literal
-        // namespace. That means a single cross-plane call can only
-        // surface hits whose stored namespace equals the request
-        // namespace — hits in sibling planes never match. Plugin
-        // workaround: one retrieve per readable (namespace, plane)
-        // pair, merged client-side. See openclaw-musubi fix notes
-        // for the Musubi #207 follow-up that would let us collapse
-        // this back to one call.
-        const targets: Array<{ namespace: string; plane: string }> = [];
-        for (const ns of presence.namespaces.curatedReadScope) {
-          const plane = ns.split("/").at(-1);
-          if (plane) targets.push({ namespace: ns, plane });
-        }
-        // Episodic last — curated/concept are higher-signal, so any
-        // dedup-by-object-id favours the curated row on ties.
-        targets.push({ namespace: presence.namespaces.episodic, plane: "episodic" });
 
-        // Optional plane filter from the caller. The `artifact` plane
-        // is excluded by default because the live server's artifact
-        // collection is missing the sparse vector config today
-        // (Musubi #208); including it returns a 500. Callers can
-        // still pass `planes: ["artifact"]` explicitly once that's
-        // fixed upstream.
-        const planeFilter = params.planes
-          ? new Set<string>(params.planes)
-          : undefined;
-        const selected = planeFilter
-          ? targets.filter((t) => planeFilter.has(t.plane))
-          : targets;
+        // Build planes list from caller filter or default readable set.
+        const defaultPlanes = ["curated", "concept", "episodic"];
+        const callerPlanes = params.planes ? [...params.planes] : defaultPlanes;
 
-        // Settled — one plane erroring shouldn't blank the recall
-        // if others succeeded. Dedup by `object_id` so the same row
-        // reachable through two namespaces (own + shared) doesn't
-        // appear twice.
+        // Collapse per-plane fanout into 2-segment cross-plane calls.
+        const targets = buildRetrieveTargets(presence, callerPlanes);
+
         const settled = await Promise.allSettled(
-          selected.map((t) =>
+          targets.map((t) =>
             client.post<MusubiRetrieveResponse>("/v1/retrieve", {
               body: {
-                namespace: t.namespace,
-                planes: [t.plane],
+                namespace: t.baseNamespace,
+                planes: [...t.planes],
                 query_text: params.query,
                 mode: "deep",
                 limit,

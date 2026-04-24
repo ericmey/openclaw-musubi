@@ -249,13 +249,12 @@ describe("createPromptSupplement", () => {
 
     await supplement.refresh({ agentId: "aoi" });
 
-    // Canonical retrieve is scoped per 3-segment namespace; every
-    // per-plane call routes through the agent's presence prefix or
-    // the shared pool.
+    // Cross-plane calls use 2-segment namespaces: primary base
+    // `eric/aoi` and shared pool `eric/_shared`.
     expect(bodies.length).toBeGreaterThan(0);
     for (const body of bodies) {
       const ns: string = JSON.parse(body!).namespace;
-      expect(ns.startsWith("eric/aoi/") || ns.startsWith("eric/_shared/")).toBe(true);
+      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
     }
   });
 });

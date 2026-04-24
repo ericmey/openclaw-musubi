@@ -5,6 +5,7 @@ import {
 } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "./retrieve-targets.js";
 
 /**
  * `MemoryPromptSectionBuilder` matching the OpenClaw SDK shape — see
@@ -109,35 +110,15 @@ export function createPromptSupplement(options: CreatePromptSupplementOptions): 
         return;
       }
 
-      // Canonical retrieve is scoped per 3-segment namespace; fan
-      // out one call per readable (namespace, plane) target and
-      // merge — matches the pattern in `src/supplement/corpus.ts`
-      // and `src/tools/recall.ts`.
-      const planeFilter = new Set<string>(planes);
-      const targets: Array<{ namespace: string; plane: string }> = [];
-      for (const ns of presence.namespaces.curatedReadScope) {
-        const plane = ns.split("/").at(-1);
-        if (plane && planeFilter.has(plane)) {
-          targets.push({ namespace: ns, plane });
-        }
-      }
-      if (planeFilter.has("episodic")) {
-        targets.push({
-          namespace: presence.namespaces.episodic,
-          plane: "episodic",
-        });
-      }
+      // Collapse per-plane fanout into 2-segment cross-plane calls.
+      const targets = buildRetrieveTargets(presence, planes);
 
-      // Settled — one plane failing shouldn't blank the cache if
-      // the others succeeded. Dedup by `object_id` so a row whose
-      // namespace happens to be reachable through two readable
-      // targets (own + shared) is counted once.
       const settled = await Promise.allSettled(
         targets.map((t) =>
           client.post<MusubiRetrieveResponse>("/v1/retrieve", {
             body: {
-              namespace: t.namespace,
-              planes: [t.plane],
+              namespace: t.baseNamespace,
+              planes: [...t.planes],
               query_text: STANDING_CONTEXT_QUERY,
               mode: "fast",
               limit: cap,

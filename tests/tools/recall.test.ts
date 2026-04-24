@@ -73,29 +73,25 @@ describe("createRecallTool", () => {
 
     await tool.definition.execute("c1", { query: "x", planes: ["curated"], limit: 3 });
     const curatedOnly = calls.splice(0, calls.length);
-    // `planes: ["curated"]` → fans out across every readable
-    // namespace whose trailing segment is `curated`. The presence
-    // resolver exposes both a per-presence curated and a shared pool,
-    // so expect multiple calls, all scoped to the curated plane with
-    // the caller-supplied limit.
+    // `planes: ["curated"]` → one or two 2-segment calls
+    // (primary base + shared pool), each with `planes: ["curated"]`.
     expect(curatedOnly.length).toBeGreaterThan(0);
     for (const call of curatedOnly) {
       const body = JSON.parse(call.body!);
       expect(body.planes).toEqual(["curated"]);
       expect(body.limit).toBe(3);
+      expect(body.namespace.split("/")).toHaveLength(2);
     }
 
     await tool.definition.execute("c2", { query: "x" });
-    // Default: no plane filter → fan out across every readable
-    // (namespace, plane) pair the presence grants. `makeConfig()`'s
-    // default presence resolves to 3 readable namespaces + the
-    // per-presence episodic, so fanout is curated/concept/episodic.
-    // Each call carries its single-plane `planes: [<plane>]` array.
+    // Default: 2-segment cross-plane calls. Primary base gets all
+    // three planes; shared base gets curated + concept.
     const defaultFanout = calls;
-    expect(defaultFanout.length).toBeGreaterThan(1);
+    expect(defaultFanout.length).toBeGreaterThan(0);
     for (const call of defaultFanout) {
       const body = JSON.parse(call.body!);
-      expect(body.planes).toHaveLength(1);
+      expect(body.namespace.split("/")).toHaveLength(2);
+      expect(body.planes.length).toBeGreaterThanOrEqual(1);
       expect(body.limit).toBe(10);
     }
   });
@@ -151,13 +147,11 @@ describe("createRecallTool", () => {
 
     await tool.definition.execute("c", { query: "x" });
 
-    // Canonical retrieve needs a 3-segment `tenant/presence/plane`
-    // namespace; every call must be scoped to the agent's presence
-    // prefix. We assert on the prefix rather than the exact full
-    // namespace because the fanout hits multiple planes.
+    // Cross-plane calls use 2-segment namespaces. Primary base is
+    // `eric/aoi`; shared pool is `eric/_shared`.
     for (const call of calls) {
       const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns.startsWith("eric/aoi/") || ns.startsWith("eric/_shared/")).toBe(true);
+      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
     }
   });
 

@@ -137,10 +137,13 @@ describe("createCorpusSupplement", () => {
 
     const defaultSupplement = createCorpusSupplement({ client, config: makeConfig() });
     await defaultSupplement.search({ query: "x" });
-    const defaultPlanes = calls.map((c) => JSON.parse(c.body!).planes[0]);
     const defaultBefore = calls.length;
-    // Default planes are curated + concept; one retrieve call per plane.
-    expect(new Set(defaultPlanes)).toEqual(new Set(["curated", "concept"]));
+    // Default: 2-segment cross-plane calls. Primary base gets all planes.
+    for (const call of calls) {
+      const body = JSON.parse(call.body!);
+      expect(body.namespace.split("/")).toHaveLength(2);
+      expect(body.planes).toEqual(expect.arrayContaining(["curated", "concept"]));
+    }
 
     const customSupplement = createCorpusSupplement({
       client,
@@ -148,13 +151,9 @@ describe("createCorpusSupplement", () => {
     });
     await customSupplement.search({ query: "x" });
     const customCalls = calls.slice(defaultBefore);
-    const customPlanes = customCalls.map((c) => JSON.parse(c.body!).planes[0]);
-    // `planes: ["curated"]` fans across every readable curated
-    // namespace — own + shared per the presence resolver — so we
-    // see multiple calls, all for the curated plane.
-    expect(customPlanes.length).toBeGreaterThan(0);
-    for (const plane of customPlanes) {
-      expect(plane).toBe("curated");
+    for (const call of customCalls) {
+      const body = JSON.parse(call.body!);
+      expect(body.planes).toEqual(["curated"]);
     }
   });
 
@@ -250,13 +249,12 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "x", agentSessionKey: "aoi" });
 
-    // Every per-plane call is scoped to a 3-segment namespace. For
-    // agent "aoi" the targets are `eric/aoi/curated` and the shared
-    // curated/concept pools under `eric/_shared/*`.
+    // Cross-plane calls use 2-segment namespaces. For agent "aoi"
+    // the primary base is `eric/aoi`; shared pools use `eric/_shared`.
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) {
       const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns.startsWith("eric/aoi/") || ns.startsWith("eric/_shared/")).toBe(true);
+      expect(ns === "eric/aoi" || ns === "eric/_shared").toBe(true);
     }
   });
 
@@ -276,14 +274,12 @@ describe("createCorpusSupplement", () => {
 
     await supplement.search({ query: "x" });
 
-    // Default presence "eric/openclaw"; every per-plane call is
-    // scoped under `eric/openclaw/<plane>` or the shared pool.
+    // Default presence "eric/openclaw"; cross-plane calls use the
+    // 2-segment base `eric/openclaw` or shared `eric/_shared`.
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) {
       const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns.startsWith("eric/openclaw/") || ns.startsWith("eric/_shared/")).toBe(
-        true,
-      );
+      expect(ns === "eric/openclaw" || ns === "eric/_shared").toBe(true);
     }
   });
 

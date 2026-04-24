@@ -5,6 +5,7 @@ import {
 } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "./retrieve-targets.js";
 
 /**
  * Structural shape of a single result row consumed by OpenClaw's
@@ -116,37 +117,17 @@ export function createCorpusSupplement(options: CreateCorpusSupplementOptions): 
 
       const limit = Math.max(1, Math.min(params.maxResults ?? cap, cap));
 
-      // Canonical retrieve wants a 3-segment `tenant/presence/plane`
-      // namespace and matches it literally against the stored row's
-      // namespace — so a single "cross-plane" call only ever returns
-      // hits from the plane in the request namespace. Fan out one
-      // retrieve call per readable (namespace, plane) target, then
-      // merge. See `src/tools/recall.ts` for the matching pattern.
-      const planeFilter = new Set<string>(planes);
-      const targets: Array<{ namespace: string; plane: string }> = [];
-      for (const ns of presence.namespaces.curatedReadScope) {
-        const plane = ns.split("/").at(-1);
-        if (plane && planeFilter.has(plane)) {
-          targets.push({ namespace: ns, plane });
-        }
-      }
-      if (planeFilter.has("episodic")) {
-        targets.push({
-          namespace: presence.namespaces.episodic,
-          plane: "episodic",
-        });
-      }
+      // Collapse per-plane fanout into 2-segment cross-plane calls.
+      // One call per unique base namespace, with all readable planes
+      // in the `planes` array. The server expands and merges internally.
+      const targets = buildRetrieveTargets(presence, planes);
 
-      // Settled — a single plane failing shouldn't blank the
-      // supplement when the rest succeeded. Dedup by `object_id`
-      // because a row stored in a namespace the presence maps to
-      // twice (e.g. own + shared) would otherwise appear duplicated.
       const settled = await Promise.allSettled(
         targets.map((t) =>
           client.post<MusubiRetrieveResponse>("/v1/retrieve", {
             body: {
-              namespace: t.namespace,
-              planes: [t.plane],
+              namespace: t.baseNamespace,
+              planes: [...t.planes],
               query_text: params.query,
               mode: "fast",
               limit,
