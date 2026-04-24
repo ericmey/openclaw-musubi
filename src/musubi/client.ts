@@ -48,7 +48,13 @@ export class MusubiClient {
   readonly #random: () => number;
 
   constructor(options: ClientOptions) {
-    this.#baseUrl = options.baseUrl.replace(/\/+$/, "");
+    const normalized = options.baseUrl.replace(/\/+$/, "");
+    if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+      throw new TypeError(
+        `MusubiClient baseUrl must be http(s):// (got "${options.baseUrl}")`,
+      );
+    }
+    this.#baseUrl = normalized;
     this.#token = options.token;
     this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.#retry = { ...DEFAULT_RETRY_POLICY, ...(options.retry ?? {}) };
@@ -61,6 +67,15 @@ export class MusubiClient {
 
   get<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
     return this.request<T>("GET", path, options);
+  }
+
+  /** Convenience GET with query params — same as {@link get} but types the query bag. */
+  getWithQuery<T = unknown>(
+    path: string,
+    query: NonNullable<RequestOptions["query"]>,
+    options?: Omit<RequestOptions, "query">,
+  ): Promise<T> {
+    return this.request<T>("GET", path, { ...options, query });
   }
 
   post<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -82,7 +97,7 @@ export class MusubiClient {
 
     const url = this.#buildUrl(path, options.query);
     const hasBody = options.body !== undefined;
-    const headers = this.#buildHeaders(requestId, idempotencyKey, hasBody);
+    const headers = this.#buildHeaders(requestId, idempotencyKey, hasBody, options.token);
     const body = hasBody ? JSON.stringify(options.body) : undefined;
     const timeoutMs = options.timeoutMs ?? this.#requestTimeoutMs;
 
@@ -132,11 +147,12 @@ export class MusubiClient {
   ): Promise<{ kind: "ok"; value: unknown } | { kind: "err"; error: MusubiError }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const abortHandler = () => controller.abort();
     if (externalSignal) {
       if (externalSignal.aborted) {
         controller.abort();
       } else {
-        externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
+        externalSignal.addEventListener("abort", abortHandler, { once: true });
       }
     }
 
@@ -150,6 +166,9 @@ export class MusubiClient {
       });
     } catch (rawError) {
       clearTimeout(timer);
+      if (externalSignal) {
+        externalSignal.removeEventListener("abort", abortHandler);
+      }
       const cause = rawError instanceof Error ? rawError : undefined;
       const isAbort = cause?.name === "AbortError";
       const error = isAbort
@@ -164,6 +183,9 @@ export class MusubiClient {
       return { kind: "err", error: retryableError };
     }
     clearTimeout(timer);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", abortHandler);
+    }
 
     if (response.ok) {
       const value = await this.#parseBody(response);
@@ -192,9 +214,10 @@ export class MusubiClient {
     requestId: string,
     idempotencyKey: string | undefined,
     hasBody: boolean,
+    tokenOverride?: string,
   ): Record<string, string> {
     const headers: Record<string, string> = {
-      [AUTH_HEADER]: `Bearer ${this.#token}`,
+      [AUTH_HEADER]: `Bearer ${tokenOverride ?? this.#token}`,
       [REQUEST_ID_HEADER]: requestId,
       Accept: JSON_CONTENT_TYPE,
     };
