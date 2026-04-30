@@ -131,7 +131,10 @@ describe("createRecallTool", () => {
     const result = await tool.definition.execute("call", { query: "x" });
 
     expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("Musubi recall failed");
+    // After ADR 0032, `musubi_recall` is a deprecation alias forwarding to
+    // the canonical `musubi_search` body — the user-facing error message
+    // is the canonical one.
+    expect(result.content[0]?.text).toContain("Musubi search failed");
   });
 
   it("uses agent presence when agentId is provided", async () => {
@@ -164,5 +167,27 @@ describe("createRecallTool", () => {
 
     expect(result.isError).toBeFalsy();
     expect(result.content[0]?.text).toContain("No Musubi results");
+  });
+
+  it("logs a deprecation warning on every invocation", async () => {
+    // After ADR 0032, `musubi_recall` is a one-release deprecation alias
+    // for `musubi_search`. Each call must log a warning so prompts /
+    // operators see the migration signal.
+    const { fetch } = createMockFetch([{ status: 200, body: { results: [] } }]);
+    const warnings: string[] = [];
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: { warn: (msg) => warnings.push(msg) },
+    });
+
+    await tool.definition.execute("c", { query: "x" });
+    await tool.definition.execute("c", { query: "y" });
+
+    expect(warnings).toHaveLength(2);
+    for (const warning of warnings) {
+      expect(warning.toLowerCase()).toContain("deprecated");
+      expect(warning).toMatch(/musubi_recall|musubi_search/);
+    }
   });
 });

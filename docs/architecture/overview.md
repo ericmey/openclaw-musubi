@@ -74,20 +74,31 @@ episodic plane. This is the flywheel: every OpenClaw modality feeds the
 shared memory automatically, without agents needing to remember to call a
 tool.
 
-### 4. Recall / get / remember / think tools
+### 4. Canonical agent-tools surface
 
-Four tools for explicit deep-path work:
+Per Musubi ADR 0032, the plugin exposes the five-tool canonical surface
+every adapter implements identically (MCP, LiveKit, OpenClaw):
 
-- `musubi_recall` — hybrid retrieve across all planes with full score + rerank.
-  Slower than the supplement but richer; agents call it when the supplement
-  misses or when they need artifacts.
-- `musubi_get` — fetch one object's full content + metadata by id after a
-  recall snippet looks load-bearing. Read-only `GET` per plane; the agent
-  copies `(plane, namespace, object_id)` straight from the recall row.
+- `musubi_recent` — recency-ordered episodic, no query needed. The
+  "what was I just doing?" tool. Today scoped to the calling presence's
+  own episodic stream; cross-modal (`<tenant>/*/episodic`) lights up
+  when Musubi `slice-retrieve-recent` (#288) and `slice-api-retrieve-
+  wildcards` ship.
+- `musubi_search` — hybrid retrieve across all planes with full score
+  + rerank. Slower than the supplement but richer; agents call it when
+  the supplement misses or when they need artifacts.
+- `musubi_get` — fetch one object's full content + metadata by id after
+  a search snippet looks load-bearing. Read-only `GET` per plane; the
+  agent copies `(plane, namespace, object_id)` straight from the search
+  row.
 - `musubi_remember` — explicit episodic capture with importance + topics.
   Lets agents pin something as "this matters" beyond the default mirror.
-- `musubi_think` — send a thought to another presence. "Tell my Claude Code
-  session that the deploy is done."
+- `musubi_think` — send a thought to another presence. "Tell my Claude
+  Code session that the deploy is done."
+
+Plus `musubi_recall` as a one-release deprecation alias for
+`musubi_search` — emits a logger.warn on each call and forwards to the
+canonical body. Drops in the next minor release.
 
 ### 5. SSE thought consumer
 

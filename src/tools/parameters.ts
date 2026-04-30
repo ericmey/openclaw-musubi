@@ -9,7 +9,14 @@ import { Type, type Static } from "@sinclair/typebox";
 
 export const PLANE_ENUM = ["curated", "concept", "episodic", "artifact"] as const;
 
-export const RecallParameters = Type.Object(
+/**
+ * Canonical name per [[07-interfaces/agent-tools]] / ADR 0032.
+ *
+ * `musubi_recall` is the legacy name; `RecallParameters` is re-exported
+ * below as an alias so existing call-sites keep compiling during the
+ * one-release deprecation window.
+ */
+export const SearchParameters = Type.Object(
   {
     query: Type.String({
       minLength: 1,
@@ -26,6 +33,35 @@ export const RecallParameters = Type.Object(
         minimum: 1,
         maximum: 50,
         description: "Max rows to return. Defaults to 10.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** @deprecated Use {@link SearchParameters}. Removed after one minor release. */
+export const RecallParameters = SearchParameters;
+
+export const RecentParameters = Type.Object(
+  {
+    limit: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: 50,
+        description:
+          "Max rows to return. Defaults to 10. Returns the N most recent episodic captures in the agent's presence namespace.",
+      }),
+    ),
+    since: Type.Optional(
+      Type.String({
+        description:
+          "ISO-8601 timestamp lower bound. Returns only rows captured at or after this time. Absent = newest items, no time filter.",
+      }),
+    ),
+    tags: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          "Filter to rows whose `tags` contains every listed tag. Useful for narrowing to a specific modality (`src:openclaw-agent-remember`) or topic.",
       }),
     ),
   },
@@ -110,7 +146,10 @@ export const ThinkParameters = Type.Object(
   { additionalProperties: false },
 );
 
-export type RecallParams = Static<typeof RecallParameters>;
+export type SearchParams = Static<typeof SearchParameters>;
+/** @deprecated Use {@link SearchParams}. Removed after one minor release. */
+export type RecallParams = SearchParams;
 export type RememberParams = Static<typeof RememberParameters>;
 export type ThinkParams = Static<typeof ThinkParameters>;
 export type GetParams = Static<typeof GetParameters>;
+export type RecentParams = Static<typeof RecentParameters>;

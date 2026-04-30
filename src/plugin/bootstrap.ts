@@ -31,7 +31,9 @@ import { createPromptSupplement } from "../supplement/prompt.js";
 import { createThoughtStream, type ThoughtStream } from "../thoughts/stream.js";
 import { createGetTool } from "../tools/get.js";
 import { createRecallTool } from "../tools/recall.js";
+import { createRecentTool } from "../tools/recent.js";
 import { createRememberTool } from "../tools/remember.js";
+import { createSearchTool } from "../tools/search.js";
 import { createThinkTool } from "../tools/think.js";
 import {
   createIntervalScheduler,
@@ -156,9 +158,16 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   // agent's identity from OpenClaw's runtime context. Static tool
   // registration captures the default presence once at load time,
   // which breaks per-agent token isolation.
+  // Canonical agent-tools surface per ADR 0032 — five tools every Musubi
+  // adapter exposes identically. Plus the one-release deprecation alias
+  // `musubi_recall` → `musubi_search`.
   api.registerTool(
     (ctx: { agentId?: string }) =>
-      createRecallTool({ client, config, agentId: ctx.agentId }).definition,
+      createSearchTool({ client, config, agentId: ctx.agentId }).definition,
+  );
+  api.registerTool(
+    (ctx: { agentId?: string }) =>
+      createRecentTool({ client, config, agentId: ctx.agentId }).definition,
   );
   api.registerTool(
     (ctx: { agentId?: string }) =>
@@ -171,6 +180,16 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createThinkTool({ client, config, agentId: ctx.agentId }).definition,
+  );
+  // Deprecation alias — drops in the next minor release.
+  api.registerTool(
+    (ctx: { agentId?: string }) =>
+      createRecallTool({
+        client,
+        config,
+        agentId: ctx.agentId,
+        logger: { warn: (msg) => api.logger.warn(msg) },
+      }).definition,
   );
 
   // `agent_end` → `capture-mirror.handleEvent`. Failures are swallowed
