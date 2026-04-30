@@ -54,10 +54,12 @@ regression surfaces immediately:
 ```
 registerMemoryCorpusSupplement
 registerMemoryPromptSupplement
-registerTool:musubi_recall
+registerTool:musubi_search
+registerTool:musubi_recent
 registerTool:musubi_get
 registerTool:musubi_remember
 registerTool:musubi_think
+registerTool:musubi_recall
 on:agent_end
 ```
 

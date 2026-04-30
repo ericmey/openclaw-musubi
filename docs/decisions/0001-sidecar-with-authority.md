@@ -53,9 +53,11 @@ Musubi runs alongside OpenClaw's native memory engine. The plugin:
   treats it with appropriate weight.
 - Hooks OpenClaw's memory-write events to **mirror every capture** into
   Musubi's episodic plane, giving cross-modality continuity.
-- Exposes explicit tools (`musubi_recall`, `musubi_get`, `musubi_remember`,
-  `musubi_think`) for agent-triggered deep queries, drill-into-source by
-  id, and cross-presence thoughts that the supplement cannot replace.
+- Exposes the canonical agent-tools surface (`musubi_recent`,
+  `musubi_search`, `musubi_get`, `musubi_remember`, `musubi_think`) per
+  Musubi ADR 0032 — agent-triggered recency, deep queries, drill-into-
+  source by id, explicit captures, and cross-presence thoughts. Plus
+  `musubi_recall` as a one-release deprecation alias for `musubi_search`.
 
 "Authority" here is **soft authority via labeled provenance**, not runtime
 override. The plugin frames its contributions so the model weighs them
