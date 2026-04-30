@@ -29,6 +29,7 @@ import type { FetchLike } from "../musubi/types.js";
 import { createCorpusSupplement } from "../supplement/corpus.js";
 import { createPromptSupplement } from "../supplement/prompt.js";
 import { createThoughtStream, type ThoughtStream } from "../thoughts/stream.js";
+import { createGetTool } from "../tools/get.js";
 import { createRecallTool } from "../tools/recall.js";
 import { createRememberTool } from "../tools/remember.js";
 import { createThinkTool } from "../tools/think.js";
@@ -158,6 +159,10 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createRecallTool({ client, config, agentId: ctx.agentId }).definition,
+  );
+  api.registerTool(
+    (ctx: { agentId?: string }) =>
+      createGetTool({ client, config, agentId: ctx.agentId }).definition,
   );
   api.registerTool(
     (ctx: { agentId?: string }) =>

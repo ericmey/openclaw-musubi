@@ -55,6 +55,7 @@ regression surfaces immediately:
 registerMemoryCorpusSupplement
 registerMemoryPromptSupplement
 registerTool:musubi_recall
+registerTool:musubi_get
 registerTool:musubi_remember
 registerTool:musubi_think
 on:agent_end

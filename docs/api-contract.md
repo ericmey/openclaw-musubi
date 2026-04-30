@@ -168,6 +168,10 @@ plugin depends on it and will not add "only one tab should receive" logic.
   (must return within the prompt-build latency budget).
 - `POST /v1/retrieve` with `mode: "deep"` for the explicit `musubi_recall`
   tool (agent-triggered, no strict latency budget).
+- `GET /v1/{plane}/{object_id}?namespace=…` for the explicit `musubi_get`
+  tool — fetch one object's full content by id after a recall surfaces a
+  load-bearing snippet. Plane path is `curated`, `concepts`, `episodic`,
+  or `artifacts` (matching the canonical router prefixes).
 
 ### Planes
 
