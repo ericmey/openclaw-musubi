@@ -24,8 +24,9 @@ replace it. Instead it:
 - **Supplements** the memory prompt with Musubi's curated knowledge and
   synthesized concepts, labeled with provenance so the model weighs
   authoritative sources higher than raw episodic chatter.
-- **Exposes tools** — `musubi_recall`, `musubi_remember`, `musubi_think` —
-  for explicit deep-path queries and presence-to-presence communication.
+- **Exposes tools** — `musubi_recall`, `musubi_get`, `musubi_remember`,
+  `musubi_think` — for explicit deep-path queries, drill-into-source by id,
+  and presence-to-presence communication.
 - **Streams thoughts** inbound over Server-Sent Events so a thought sent by
   your Claude Code session surfaces in your Discord-facing agent within
   seconds, not polling-intervals.

@@ -179,11 +179,11 @@ describe("bootstrap: capability registration", () => {
     expect(hook).toBeDefined();
   });
 
-  it("registers all three agent tools: recall, remember, think", async () => {
+  it("registers all four agent tools: recall, get, remember, think", async () => {
     const api = makeApi();
     await bootstrap(commonOpts(api));
     const tools = api.events.filter((e) => e.kind === "registerTool");
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(4);
     const names = tools
       .map((t) => {
         const arg = t.arg as unknown;
@@ -196,7 +196,7 @@ describe("bootstrap: capability registration", () => {
         return tool.name;
       })
       .sort();
-    expect(names).toEqual(["musubi_recall", "musubi_remember", "musubi_think"]);
+    expect(names).toEqual(["musubi_get", "musubi_recall", "musubi_remember", "musubi_think"]);
   });
 });
 
@@ -293,6 +293,7 @@ describe("bootstrap: integration wiring", () => {
       "registerMemoryCorpusSupplement",
       "registerMemoryPromptSupplement",
       "registerTool:musubi_recall",
+      "registerTool:musubi_get",
       "registerTool:musubi_remember",
       "registerTool:musubi_think",
       "on:agent_end",

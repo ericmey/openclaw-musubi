@@ -61,6 +61,28 @@ export const RememberParameters = Type.Object(
   { additionalProperties: false },
 );
 
+export const GetParameters = Type.Object(
+  {
+    plane: Type.Union(
+      PLANE_ENUM.map((p) => Type.Literal(p)),
+      {
+        description:
+          "Which plane the object lives in. Recall results expose this as the `[plane]` label.",
+      },
+    ),
+    namespace: Type.String({
+      minLength: 1,
+      description:
+        "Namespace the object belongs to, exactly as returned by recall (e.g. 'eric/aoi-phone/episodic' or 'eric/_shared/curated').",
+    }),
+    object_id: Type.String({
+      minLength: 1,
+      description: "Stable id of the object — copy verbatim from a recall result.",
+    }),
+  },
+  { additionalProperties: false },
+);
+
 export const ThinkParameters = Type.Object(
   {
     toPresence: Type.String({
@@ -91,3 +113,4 @@ export const ThinkParameters = Type.Object(
 export type RecallParams = Static<typeof RecallParameters>;
 export type RememberParams = Static<typeof RememberParameters>;
 export type ThinkParams = Static<typeof ThinkParameters>;
+export type GetParams = Static<typeof GetParameters>;
