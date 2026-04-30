@@ -179,11 +179,13 @@ describe("bootstrap: capability registration", () => {
     expect(hook).toBeDefined();
   });
 
-  it("registers all four agent tools: recall, get, remember, think", async () => {
+  it("registers the canonical agent-tools surface plus the recall deprecation alias", async () => {
     const api = makeApi();
     await bootstrap(commonOpts(api));
     const tools = api.events.filter((e) => e.kind === "registerTool");
-    expect(tools).toHaveLength(4);
+    // Five canonical (search/recent/get/remember/think) + one deprecation
+    // alias (recall → search) per ADR 0032 / [[07-interfaces/agent-tools]].
+    expect(tools).toHaveLength(6);
     const names = tools
       .map((t) => {
         const arg = t.arg as unknown;
@@ -196,7 +198,14 @@ describe("bootstrap: capability registration", () => {
         return tool.name;
       })
       .sort();
-    expect(names).toEqual(["musubi_get", "musubi_recall", "musubi_remember", "musubi_think"]);
+    expect(names).toEqual([
+      "musubi_get",
+      "musubi_recall",
+      "musubi_recent",
+      "musubi_remember",
+      "musubi_search",
+      "musubi_think",
+    ]);
   });
 });
 
@@ -292,10 +301,12 @@ describe("bootstrap: integration wiring", () => {
     expect(kinds).toEqual([
       "registerMemoryCorpusSupplement",
       "registerMemoryPromptSupplement",
-      "registerTool:musubi_recall",
+      "registerTool:musubi_search",
+      "registerTool:musubi_recent",
       "registerTool:musubi_get",
       "registerTool:musubi_remember",
       "registerTool:musubi_think",
+      "registerTool:musubi_recall",
       "on:agent_end",
     ]);
   });

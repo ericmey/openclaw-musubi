@@ -24,9 +24,11 @@ replace it. Instead it:
 - **Supplements** the memory prompt with Musubi's curated knowledge and
   synthesized concepts, labeled with provenance so the model weighs
   authoritative sources higher than raw episodic chatter.
-- **Exposes tools** — `musubi_recall`, `musubi_get`, `musubi_remember`,
-  `musubi_think` — for explicit deep-path queries, drill-into-source by id,
-  and presence-to-presence communication.
+- **Exposes the canonical agent-tools surface** — `musubi_recent`,
+  `musubi_search`, `musubi_get`, `musubi_remember`, `musubi_think` — the
+  same five tools every Musubi adapter exposes (MCP, LiveKit, OpenClaw)
+  per ADR 0032. Plus `musubi_recall` as a one-release deprecation alias
+  for `musubi_search`.
 - **Streams thoughts** inbound over Server-Sent Events so a thought sent by
   your Claude Code session surfaces in your Discord-facing agent within
   seconds, not polling-intervals.
