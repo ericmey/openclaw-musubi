@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { MusubiConfig } from "../../src/config.js";
-import { resolvePresence } from "../../src/presence/resolver.js";
 import { PresenceResolutionError } from "../../src/presence/errors.js";
+import { resolvePresence } from "../../src/presence/resolver.js";
 
 type PresenceConfig = Pick<MusubiConfig, "core" | "presence">;
 

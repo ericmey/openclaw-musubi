@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { InMemoryLastEventIdStore } from "../../src/thoughts/persistence.js";
 
 describe("InMemoryLastEventIdStore", () => {

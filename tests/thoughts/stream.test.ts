@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
-import { createThoughtStream, type ThoughtPayload } from "../../src/thoughts/stream.js";
-import type { FetchForStream } from "../../src/thoughts/stream.js";
-import { BoundedDedupSet } from "../../src/thoughts/dedup.js";
-import { InMemoryLastEventIdStore } from "../../src/thoughts/persistence.js";
+import { describe, expect, it, vi } from "vitest";
 import type { MusubiConfig } from "../../src/config.js";
 import type { MusubiClient } from "../../src/musubi/client.js";
+import { BoundedDedupSet } from "../../src/thoughts/dedup.js";
+import { InMemoryLastEventIdStore } from "../../src/thoughts/persistence.js";
+import type { FetchForStream } from "../../src/thoughts/stream.js";
+import { createThoughtStream, type ThoughtPayload } from "../../src/thoughts/stream.js";
 
 function makeConfig(overrides: Partial<MusubiConfig> = {}): MusubiConfig {
   return {

@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  type CaptureEvent,
   deriveIdempotencyKey,
   translateCaptureEvent,
-  type CaptureEvent,
 } from "../../src/capture/translate.js";
 import type { PresenceContext } from "../../src/presence/resolver.js";
 

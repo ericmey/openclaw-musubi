@@ -30,7 +30,7 @@ export function nextSseBackoffMs(attempt: number, options: BackoffOptions = {}):
   const maxDelayMs = options.maxDelayMs ?? SSE_MAX_DELAY_MS;
   const random = options.random ?? Math.random;
 
-  const exponential = SSE_BASE_DELAY_MS * Math.pow(2, attempt);
+  const exponential = SSE_BASE_DELAY_MS * 2 ** attempt;
   const jitter = random() * SSE_JITTER_MS;
   return Math.min(exponential + jitter, maxDelayMs);
 }

@@ -1,8 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { MusubiClient } from "../../src/musubi/client.js";
-import { createCorpusSupplement, type CorpusSearchResult } from "../../src/supplement/corpus.js";
+import { describe, expect, it } from "vitest";
 import type { MusubiConfig } from "../../src/config.js";
+import { MusubiClient } from "../../src/musubi/client.js";
 import type { FetchLike } from "../../src/musubi/types.js";
+import { type CorpusSearchResult, createCorpusSupplement } from "../../src/supplement/corpus.js";
 
 type RecordedCall = {
   url: string;

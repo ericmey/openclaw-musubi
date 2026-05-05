@@ -5,5 +5,5 @@
  * has a single place to swap SDK subpaths if upstream reorganizes.
  */
 
-export { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 export type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+export { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";

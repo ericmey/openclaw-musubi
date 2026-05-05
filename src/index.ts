@@ -25,7 +25,7 @@
  */
 
 import { definePluginEntry } from "./api.js";
-import { bootstrap, type BootstrapPluginApi } from "./plugin/bootstrap.js";
+import { type BootstrapPluginApi, bootstrap } from "./plugin/bootstrap.js";
 import type { LifecycleHandle } from "./plugin/lifecycle.js";
 
 let lifecycle: LifecycleHandle | undefined;

@@ -1,3 +1,4 @@
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "../config.js";
 import type { MusubiError } from "./errors.js";
 import {
   AuthError,
@@ -10,7 +11,6 @@ import {
 } from "./errors.js";
 import { DEFAULT_RETRY_POLICY, nextDelayMs, type RetryPolicy } from "./retry.js";
 import type { ClientOptions, FetchLike, HttpMethod, RequestOptions } from "./types.js";
-import { DEFAULT_REQUEST_TIMEOUT_MS } from "../config.js";
 
 const AUTH_HEADER = "Authorization";
 const REQUEST_ID_HEADER = "X-Request-Id";

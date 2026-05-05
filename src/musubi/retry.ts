@@ -41,7 +41,7 @@ export function nextDelayMs(
   if (attempt < 0) {
     throw new RangeError(`attempt must be >= 0 (got ${attempt})`);
   }
-  const exponential = policy.baseDelayMs * Math.pow(2, attempt);
+  const exponential = policy.baseDelayMs * 2 ** attempt;
   const jitter = random() * policy.jitterMs;
   return Math.min(exponential + jitter, policy.maxDelayMs);
 }

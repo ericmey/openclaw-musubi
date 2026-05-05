@@ -23,7 +23,7 @@ import { FormatRegistry } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
 import { createCaptureMirror } from "../capture/mirror.js";
-import { MusubiConfigSchema, type MusubiConfig } from "../config.js";
+import { type MusubiConfig, MusubiConfigSchema } from "../config.js";
 import { MusubiClient } from "../musubi/client.js";
 import type { FetchLike } from "../musubi/types.js";
 import { createCorpusSupplement } from "../supplement/corpus.js";
@@ -164,22 +164,27 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createSearchTool({ client, config, agentId: ctx.agentId }).definition,
+    { name: "musubi_search" },
   );
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createRecentTool({ client, config, agentId: ctx.agentId }).definition,
+    { name: "musubi_recent" },
   );
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createGetTool({ client, config, agentId: ctx.agentId }).definition,
+    { name: "musubi_get" },
   );
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createRememberTool({ client, config, agentId: ctx.agentId }).definition,
+    { name: "musubi_remember" },
   );
   api.registerTool(
     (ctx: { agentId?: string }) =>
       createThinkTool({ client, config, agentId: ctx.agentId }).definition,
+    { name: "musubi_think" },
   );
   // Deprecation alias — drops in the next minor release.
   api.registerTool(
@@ -190,6 +195,7 @@ export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHan
         agentId: ctx.agentId,
         logger: { warn: (msg) => api.logger.warn(msg) },
       }).definition,
+    { name: "musubi_recall" },
   );
 
   // `agent_end` → `capture-mirror.handleEvent`. Failures are swallowed
