@@ -50,7 +50,7 @@
     "@sinclair/typebox": "^0.34.49"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.4.10"
+    "openclaw": ">=2026.5.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -75,10 +75,10 @@
       "minHostVersion": ">=2026.4.10"
     },
     "compat": {
-      "pluginApi": ">=2026.4.19-beta.1"
+      "pluginApi": ">=2026.5.4"
     },
     "build": {
-      "openclawVersion": "2026.4.19-beta.1"
+      "openclawVersion": "2026.5.4"
     },
     "release": {
       "publishToClawHub": true,
