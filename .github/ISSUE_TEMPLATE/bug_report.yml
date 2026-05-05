@@ -1,0 +1,64 @@
+name: Bug report
+description: Something is broken or behaves contrary to documentation
+labels: [bug]
+body:
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened — cite the relevant doc or ADR if you can.
+    validations: { required: true }
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened
+      description: Actual behavior, with exact error messages.
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps. Numbered list ideal.
+    validations: { required: true }
+  - type: input
+    id: plugin-version
+    attributes:
+      label: openclaw-musubi version
+      placeholder: "1.0.0"
+    validations: { required: true }
+  - type: input
+    id: openclaw-version
+    attributes:
+      label: openclaw version
+    validations: { required: true }
+  - type: input
+    id: musubi-version
+    attributes:
+      label: Musubi core version
+      description: From the `musubi` server, not this plugin.
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+    validations: { required: true }
+  - type: input
+    id: os
+    attributes:
+      label: Host OS
+  - type: textarea
+    id: config
+    attributes:
+      label: Config (redacted)
+      description: Redact tokens. Show core baseUrl, presence shape, supplement settings.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `openclaw plugins logs musubi` around the failure. Redact tokens / sensitive content.
+      render: shell
+  - type: textarea
+    id: extras
+    attributes:
+      label: Anything else
+      description: Workarounds tried, suspected root cause, related issues.

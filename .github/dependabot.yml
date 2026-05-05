@@ -1,0 +1,34 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
+      dev-dependencies:
+        dependency-type: "development"
+    ignore:
+      # Pin TypeScript to 5.x. TS 6.0 is a major version with breaking
+      # changes; bump deliberately when we evaluate it, not via auto-PR.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Pin @types/node to 22.x to match the Node 22 LTS runtime our
+      # peer (openclaw on nyla) uses. Bumping past 22 brings types for
+      # APIs that don't exist in our deployment environment.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github-actions"

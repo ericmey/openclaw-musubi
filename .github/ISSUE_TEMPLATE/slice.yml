@@ -1,0 +1,54 @@
+name: Slice
+description: A parallel-safe unit of work with explicit scope (musubi dev workflow)
+title: "Slice: <short name>"
+labels: [slice]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph describing what this slice delivers and why it matters now.
+    validations: { required: true }
+  - type: textarea
+    id: owned-paths
+    attributes:
+      label: Owned paths
+      description: Files this slice may write. Be specific.
+      placeholder: |
+        - src/...
+        - tests/...
+        - docs/...
+    validations: { required: true }
+  - type: textarea
+    id: forbidden-paths
+    attributes:
+      label: Forbidden paths
+      description: Files owned by other slices that this work must not touch.
+  - type: textarea
+    id: depends-on
+    attributes:
+      label: Depends on
+      description: Slice issues (or upstream Musubi work) that must merge before this can.
+      placeholder: |
+        - #N — short description
+        - Upstream: ericmey/musubi#NNN
+  - type: textarea
+    id: test-contract
+    attributes:
+      label: Test contract
+      description: The set of tests that prove the slice is done. Write names first; implementation follows.
+      placeholder: |
+        - [ ] test_<thing>_<expected_behavior>
+        - [ ] test_<thing>_<edge_case>
+        - [ ] integration: <end-to-end scenario>
+    validations: { required: true }
+  - type: textarea
+    id: dod
+    attributes:
+      label: Definition of done
+      value: |
+        - [ ] All listed tests pass.
+        - [ ] Lint and typecheck clean.
+        - [ ] Docs updated where the slice changes the contract (`docs/api-contract.md`, relevant ADR, `CHANGELOG.md` `## [Unreleased]`).
+        - [ ] PR description references this issue (`Closes #N`).
+        - [ ] No file outside "Owned paths" modified, unless explicitly justified in the PR description.

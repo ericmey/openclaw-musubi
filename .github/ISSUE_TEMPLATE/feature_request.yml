@@ -1,0 +1,30 @@
+name: Feature request
+description: A capability the plugin should grow
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user-visible problem does this solve? Don't prescribe a solution here.
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: A shape-level sketch. The slice issue and PR lock the details later.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else could solve this? Tradeoffs.
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Upstream Musubi requirements
+      description: Does this need anything from the Musubi core that doesn't exist yet? List the API surface or behavior required.
+  - type: textarea
+    id: scope
+    attributes:
+      label: Out of scope
+      description: What this issue is **not** asking for — keeps discussion focused.
