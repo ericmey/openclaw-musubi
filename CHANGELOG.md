@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [1.0.0](https://github.com/ericmey/openclaw-musubi/compare/v0.1.0...v1.0.0) (2026-05-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* 1.0.0 stable. Plugin contract surface is now stable; future breaking changes follow semver. Consumers on Node <22.14 must upgrade. Consumers on openclaw <2026.5.4 must upgrade or stay on 0.1.x.
+
+### Features
+
+* prepare 1.0.0 stable release ([#31](https://github.com/ericmey/openclaw-musubi/issues/31)) ([05e7029](https://github.com/ericmey/openclaw-musubi/commit/05e7029d032ce619bbb113d69d2c34416d7658eb))
+* **supplement:** tenant-wide retrieve via wildcard base ([#23](https://github.com/ericmey/openclaw-musubi/issues/23)) ([05424c3](https://github.com/ericmey/openclaw-musubi/commit/05424c36d2fac720c1152dd1c3b2f6d3b37a00c8))
+* **thoughts:** history backfill on X-Musubi-Replay-Truncated ([#22](https://github.com/ericmey/openclaw-musubi/issues/22)) ([835b620](https://github.com/ericmey/openclaw-musubi/commit/835b6208a17386754636d272b42bcd001771d031))
+* **tools:** canonical agent-tools conformance — musubi_search + musubi_recent ([#26](https://github.com/ericmey/openclaw-musubi/issues/26)) ([3f5b66e](https://github.com/ericmey/openclaw-musubi/commit/3f5b66e57e4cd64c5431daafbb61684a119731df))
+* **tools:** musubi_get — fetch one object by id across any plane ([#24](https://github.com/ericmey/openclaw-musubi/issues/24)) ([8755542](https://github.com/ericmey/openclaw-musubi/commit/8755542468a058cfae94d9050230de91f05c9ae2))
+* **v1.0:** align with Musubi v1.0 endpoint rename + title promotion ([#21](https://github.com/ericmey/openclaw-musubi/issues/21)) ([8077612](https://github.com/ericmey/openclaw-musubi/commit/80776126cfb7be54683e4f7c5c21f7a190965a64))
+
+
+### Bug Fixes
+
+* **bootstrap:** read api.pluginConfig instead of api.config ([dfc4b65](https://github.com/ericmey/openclaw-musubi/commit/dfc4b65df23803ce774395d71f066c51a12cce91))
+* **plugin:** cross-validated remediation — per-agent tokens, 2-seg retrieve, SSE resilience, importance bounds ([#20](https://github.com/ericmey/openclaw-musubi/issues/20)) ([c2b49f2](https://github.com/ericmey/openclaw-musubi/commit/c2b49f26c8b1f19b745ca264f8392da75568b885))
+
 ## [Unreleased]
 
 ### Added
