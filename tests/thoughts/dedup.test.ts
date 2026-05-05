@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { BoundedDedupSet, DEFAULT_DEDUP_MAX_SIZE } from "../../src/thoughts/dedup.js";
 
 describe("BoundedDedupSet", () => {

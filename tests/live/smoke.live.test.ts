@@ -22,12 +22,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { MusubiClient } from "../../src/musubi/client.js";
 import { createCaptureMirror } from "../../src/capture/mirror.js";
-import { createRememberTool } from "../../src/tools/remember.js";
-import { createRecallTool } from "../../src/tools/recall.js";
-import { createThinkTool } from "../../src/tools/think.js";
 import type { MusubiConfig } from "../../src/config.js";
+import { MusubiClient } from "../../src/musubi/client.js";
+import { createRecallTool } from "../../src/tools/recall.js";
+import { createRememberTool } from "../../src/tools/remember.js";
+import { createThinkTool } from "../../src/tools/think.js";
 
 const BASE_URL = process.env.MUSUBI_LIVE_BASE_URL;
 const TOKEN = process.env.MUSUBI_LIVE_TOKEN;

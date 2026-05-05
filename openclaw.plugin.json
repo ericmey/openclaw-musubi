@@ -159,5 +159,15 @@
       }
     },
     "required": ["core", "presence"]
+  },
+  "contracts": {
+    "tools": [
+      "musubi_search",
+      "musubi_recent",
+      "musubi_get",
+      "musubi_remember",
+      "musubi_think",
+      "musubi_recall"
+    ]
   }
 }

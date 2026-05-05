@@ -1,11 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { MusubiConfig } from "../../src/config.js";
 import type { FetchLike } from "../../src/musubi/types.js";
 import {
-  bootstrap,
   type BootstrapOptions,
   type BootstrapPluginApi,
+  bootstrap,
 } from "../../src/plugin/bootstrap.js";
 import type { Scheduler } from "../../src/plugin/lifecycle.js";
 import type { ThoughtStream, ThoughtStreamHandlers } from "../../src/thoughts/stream.js";

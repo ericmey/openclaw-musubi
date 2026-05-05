@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_RETRY_POLICY, mergeRetryPolicy, nextDelayMs } from "../../src/musubi/retry.js";
 
 describe("retry policy", () => {

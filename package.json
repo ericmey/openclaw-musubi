@@ -4,7 +4,7 @@
   "description": "Musubi memory plane for OpenClaw agents — episodic capture, curated knowledge, and presence-to-presence thoughts with authority-weighted prompt supplements.",
   "type": "module",
   "license": "MIT",
-  "author": "Eric Mey <eric.mey@salesai.com>",
+  "author": "Eric Mey <ericmey@gmail.com>",
   "homepage": "https://github.com/ericmey/openclaw-musubi",
   "repository": {
     "type": "git",
@@ -25,7 +25,7 @@
     "cross-modality"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.14.0"
   },
   "files": [
     "dist",
@@ -38,12 +38,13 @@
   "scripts": {
     "build": "tsc -p .",
     "typecheck": "tsc --noEmit -p .",
-    "lint": "eslint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "lint": "biome check .",
+    "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build"
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "lint:fix": "biome check --write .",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.49"
@@ -53,12 +54,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "eslint": "^9.0.0",
     "openclaw": "2026.4.19-beta.2",
-    "prettier": "^3.3.0",
     "typescript": "^5.5.0",
-    "typescript-eslint": "^8.0.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.0.0",
+    "@biomejs/biome": "^2.4.14",
+    "@vitest/coverage-v8": "^4.0.0"
   },
   "pnpm": {
     "overrides": {
@@ -84,5 +84,6 @@
       "publishToClawHub": true,
       "publishToNpm": true
     }
-  }
+  },
+  "packageManager": "npm@10.9.2"
 }

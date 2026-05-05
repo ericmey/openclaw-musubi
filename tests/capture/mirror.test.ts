@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { MusubiClient } from "../../src/musubi/client.js";
+import { describe, expect, it } from "vitest";
 import { createCaptureMirror, type MirrorLogger } from "../../src/capture/mirror.js";
 import type { MusubiConfig } from "../../src/config.js";
+import { MusubiClient } from "../../src/musubi/client.js";
 import type { FetchLike } from "../../src/musubi/types.js";
 
 type RecordedCall = {
