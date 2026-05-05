@@ -8,6 +8,17 @@ and this project adheres to a calendar-flavored semantic versioning scheme
 
 ## [Unreleased]
 
+### Added
+- **Stable 1.0.0 release.** Plugin contract surface, agent tool set, and configuration schema are now stable; future breaking changes will follow semver and be documented here.
+- Released to npm as [`openclaw-musubi`](https://www.npmjs.com/package/openclaw-musubi) with provenance attestation (SLSA Level 3 via npm trusted publishing OIDC).
+- Compat target lifted to OpenClaw `>=2026.5.4` — first version with the externalized-plugin gate path that recognizes our agent-tools registration when `contracts.tools` is properly declared.
+- Six canonical agent tools now declared in `openclaw.plugin.json` `contracts.tools` — `musubi_search`, `musubi_recent`, `musubi_get`, `musubi_remember`, `musubi_think`, `musubi_recall` (deprecation alias). Each `registerTool` call now passes its name explicitly so the openclaw 5.4 registry can verify the registration against the contract.
+- Repository tooling: Biome (lint + format), CodeQL workflow, Dependabot config, GitHub issue and PR templates as form-based YAML, expanded CI matrix covering Node 22 and 24, release-please for automated version PRs from conventional commits, OIDC trusted publishing.
+
+### Changed
+- Migrated from pnpm to npm. `engines.node` raised from `>=22` to `>=22.14.0` to match openclaw core.
+- Migrated from ESLint + Prettier to Biome 2.4.14 with a single `biome.json` config.
+
 ## [0.1.0] — 2026-04-22
 
 First tagged release. The plugin is loadable against OpenClaw via `definePluginEntry` and ships the full Musubi integration surface:
