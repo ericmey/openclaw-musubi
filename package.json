@@ -1,6 +1,6 @@
 {
   "name": "openclaw-musubi",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Musubi memory plane for OpenClaw agents — episodic capture, curated knowledge, and presence-to-presence thoughts with authority-weighted prompt supplements.",
   "type": "module",
   "license": "MIT",
@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "openclaw": "2026.4.19-beta.2",
+    "openclaw": "2026.5.4",
     "typescript": "^5.5.0",
     "vitest": "^4.0.0",
     "@biomejs/biome": "^2.4.14",
