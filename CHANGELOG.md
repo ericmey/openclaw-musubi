@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [1.0.3](https://github.com/ericmey/openclaw-musubi/compare/v1.0.2...v1.0.3) (2026-05-07)
+
+
+### Bug Fixes
+
+* **register:** cache bootstrap promise to prevent re-bootstrap on repeated register() calls ([f7f6330](https://github.com/ericmey/openclaw-musubi/commit/f7f63303667722f1f4f9e9d99da2672e187fbde0))
+
 ## [1.0.2](https://github.com/ericmey/openclaw-musubi/compare/v1.0.1...v1.0.2) (2026-05-06)
 
 
