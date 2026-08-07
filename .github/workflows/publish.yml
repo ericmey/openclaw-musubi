@@ -24,15 +24,19 @@ jobs:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
+          package-manager-cache: false
+      - name: Install OIDC-capable npm
+        run: npm install --global npm@11.18.0
+      - name: Verify publish runtime
+        run: |
+          node --version
+          npm --version
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - name: Publish to npm (with provenance)
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm with trusted publishing
+        run: npm publish --access public
