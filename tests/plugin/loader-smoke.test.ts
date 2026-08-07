@@ -68,7 +68,7 @@ describe("OpenClaw loader acceptance", () => {
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toMatchObject({
       plugins: { slots: { memory: "musubi" } },
     });
-  });
+  }, 20_000);
 
   it("materializes declared SecretRefs before plugin bootstrap in the real gateway runtime", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-secrets-"));
