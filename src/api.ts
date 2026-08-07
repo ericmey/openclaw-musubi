@@ -10,3 +10,4 @@ export type {
   OpenClawPluginDefinition,
 } from "openclaw/plugin-sdk/plugin-entry";
 export { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+export { getGlobalPluginRegistry } from "openclaw/plugin-sdk/plugin-runtime";
