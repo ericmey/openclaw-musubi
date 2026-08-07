@@ -38,5 +38,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # npm Trusted Publishing generates provenance automatically for public
+      # packages published from public GitHub repositories.
       - name: Publish to npm with trusted publishing
         run: npm publish --access public
