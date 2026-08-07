@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.0](https://github.com/ericmey/openclaw-musubi/compare/v1.0.3...v2.0.0) (2026-08-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* Musubi must own plugins.slots.memory and requires OpenClaw >=2026.7.1.
+
+### Features
+
+* make Musubi OpenClaw's first-class memory provider ([9c7a0d1](https://github.com/ericmey/openclaw-musubi/commit/9c7a0d1c42b8061adbf45aacc1fb91e32461e7ae))
+
 ## [1.0.3](https://github.com/ericmey/openclaw-musubi/compare/v1.0.2...v1.0.3) (2026-05-07)
 
 
