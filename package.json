@@ -44,7 +44,7 @@
     "test:watch": "vitest",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build",
     "lint:fix": "biome check --write .",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "npm run build && vitest run --coverage"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.49"
