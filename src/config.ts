@@ -1,12 +1,12 @@
 import { type Static, Type } from "@sinclair/typebox";
 
 /**
- * Plugin configuration shape, mirroring `openclaw.plugin.json`'s
- * `configSchema`. The manifest is the authoritative source for validation at
- * install time; this TypeBox schema gives us typed access at runtime.
+ * Runtime plugin configuration shape. OpenClaw materializes the manifest's
+ * declared SecretInput fields before plugin bootstrap, so the runtime schema
+ * intentionally accepts resolved strings while `openclaw.plugin.json` also
+ * accepts authored SecretRef objects at those paths.
  *
- * Keep in sync with `openclaw.plugin.json`. A future slice will add a
- * schema-parity test to enforce this.
+ * Keep every non-secret-input field in sync with `openclaw.plugin.json`.
  */
 export const MusubiConfigSchema = Type.Object(
   {
@@ -26,6 +26,10 @@ export const MusubiConfigSchema = Type.Object(
       },
       { additionalProperties: false },
     ),
+    /**
+     * Deprecated 1.0 compatibility block. Accepted so an existing config can
+     * upgrade without a validation outage; first-class Musubi ignores it.
+     */
     supplement: Type.Optional(
       Type.Object(
         {
@@ -48,6 +52,8 @@ export const MusubiConfigSchema = Type.Object(
     capture: Type.Optional(
       Type.Object(
         {
+          completedTurns: Type.Optional(Type.Boolean()),
+          /** Deprecated alias for completedTurns. */
           mirrorOpenClawMemory: Type.Optional(Type.Boolean()),
         },
         { additionalProperties: false },
@@ -75,7 +81,5 @@ export const MusubiConfigSchema = Type.Object(
 
 export type MusubiConfig = Static<typeof MusubiConfigSchema>;
 
-export const DEFAULT_SUPPLEMENT_PLANES = ["curated", "concept"] as const;
-export const DEFAULT_SUPPLEMENT_MAX_RESULTS = 5;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_RECONNECT_MAX_BACKOFF_MS = 30_000;

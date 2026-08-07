@@ -43,7 +43,7 @@ export type RequestOptions = {
 
   /**
    * Override the auto-generated `Idempotency-Key`. Useful when the caller
-   * already has a stable client-side id (e.g. mirroring an OpenClaw memory
+   * already has a stable client-side id (e.g. capturing an OpenClaw turn
    * row by its existing id).
    */
   readonly idempotencyKey?: string;

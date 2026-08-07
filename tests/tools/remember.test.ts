@@ -1,144 +1,98 @@
-import { describe, expect, it } from "vitest";
-import type { MusubiConfig } from "../../src/config.js";
-import { MusubiClient } from "../../src/musubi/client.js";
-import type { FetchLike } from "../../src/musubi/types.js";
+import { describe, expect, it, vi } from "vitest";
+
+import type { DeliveryRow } from "../../src/delivery/outbox.js";
 import { createRememberTool } from "../../src/tools/remember.js";
 
-function makeConfig(overrides: Partial<MusubiConfig> = {}): MusubiConfig {
+function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
   return {
-    core: { baseUrl: "https://musubi.test", token: "t", ...(overrides.core ?? {}) },
-    presence: { defaultId: "eric/openclaw", ...(overrides.presence ?? {}) },
+    id: 1,
+    idem_key: "openclaw-remember:call-1",
+    content_sha256: "sha",
+    namespace: "aoi/command-chair/episodic",
+    agent_id: "aoi",
+    content: "note",
+    tags_json: "[]",
+    importance: 7,
+    source_ref: "call-1",
+    created_at_ms: 1,
+    attempts: 0,
+    next_try_at_ms: 0,
+    leased_at_ms: null,
+    lease_owner: null,
+    last_error: null,
+    consecutive_failures: 0,
+    verified_at_ms: null,
+    state: "pending",
+    object_id: null,
+    ...overrides,
   };
 }
-
-function createMockFetch(script: Array<{ status: number; body?: unknown }>) {
-  const calls: Array<{ url: string; headers: Record<string, string>; body: string | undefined }> =
-    [];
-  let cursor = 0;
-  const fetch: FetchLike = async (url, init) => {
-    const headers: Record<string, string> = {};
-    if (init.headers) {
-      for (const [k, v] of Object.entries(init.headers as Record<string, string>)) {
-        headers[k] = v;
-      }
-    }
-    calls.push({ url, headers, body: typeof init.body === "string" ? init.body : undefined });
-    const def = script[cursor] ?? script[script.length - 1];
-    cursor += 1;
-    if (def === undefined) throw new Error("script exhausted");
-    return new Response(def.body !== undefined ? JSON.stringify(def.body) : null, {
-      status: def.status,
-      headers: { "content-type": "application/json" },
-    });
-  };
-  return { fetch, calls };
-}
-
-function makeClient(fetch: FetchLike) {
-  return new MusubiClient({
-    baseUrl: "https://musubi.test",
-    token: "t",
-    fetch,
-    sleep: async () => undefined,
-    random: () => 0,
-    generateRequestId: () => "r",
-    // A distinct auto-generated key per POST so we can tell overrides apart.
-    generateIdempotencyKey: () => "auto-idem",
-    retry: { maxAttempts: 1 },
-  });
-}
-
-const FIXED_NOW = () => new Date("2026-04-20T05:00:00.000Z");
 
 describe("createRememberTool", () => {
-  it("test_remember_accepts_content_importance_topics", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 202, body: { object_id: "stored-1" } }]);
-    const tool = createRememberTool({
-      client: makeClient(fetch),
-      config: makeConfig(),
-      now: FIXED_NOW,
-    });
-
-    await tool.definition.execute("call-1", {
-      content: "Eric said ship Musubi v2 this quarter.",
-      importance: 9,
-      topics: ["musubi", "roadmap"],
-    });
-
-    const body = JSON.parse(calls[0]!.body!);
-    expect(body.content).toBe("Eric said ship Musubi v2 this quarter.");
-    expect(body.importance).toBe(9);
-    // `topics` is folded into `tags` at the canonical boundary so the
-    // request matches `POST /v1/episodic`'s CaptureRequest shape.
-    expect(body.tags).toEqual(
-      expect.arrayContaining(["musubi", "roadmap", "src:openclaw-agent-remember", "ref:call-1"]),
+  it("returns verified only after canonical delivery verification", async () => {
+    const enqueueExplicit = vi.fn(() => row());
+    const awaitTerminal = vi.fn(async () =>
+      row({ state: "verified", object_id: "obj-1", verified_at_ms: 2 }),
     );
-  });
-
-  it("test_remember_posts_to_memories_with_presence_namespace", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 202, body: { object_id: "stored" } }]);
     const tool = createRememberTool({
-      client: makeClient(fetch),
-      config: makeConfig({
-        presence: { defaultId: "eric/openclaw", perAgent: { aoi: "eric/aoi" } },
-      }),
+      delivery: { enqueueExplicit, awaitTerminal },
       agentId: "aoi",
-      now: FIXED_NOW,
     });
-
-    await tool.definition.execute("call", { content: "x" });
-
-    expect(calls[0]?.url).toBe("https://musubi.test/v1/episodic");
-    const body = JSON.parse(calls[0]!.body!);
-    expect(body.namespace).toBe("eric/aoi/episodic");
-    // Canonical CaptureRequest has no `capture_source` — it lives in
-    // `tags` as an `src:` prefix now.
-    expect(body.tags).toContain("src:openclaw-agent-remember");
+    const result = await tool.definition.execute("call-1", {
+      content: "important",
+      importance: 9,
+      topics: ["decision"],
+    });
+    expect(enqueueExplicit).toHaveBeenCalledWith({
+      agentId: "aoi",
+      toolCallId: "call-1",
+      content: "important",
+      importance: 9,
+      topics: ["decision"],
+      idempotencyKey: "openclaw-remember:call-1",
+    });
+    expect(result.content[0]?.text).toContain("Verified in Musubi");
+    expect(result.content[0]?.text).toContain("obj-1");
   });
 
-  it("test_remember_idempotent_on_client_supplied_id", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 202 }, { status: 202 }, { status: 202 }]);
+  it("truthfully reports durable queued state rather than remembered", async () => {
+    const pending = row();
     const tool = createRememberTool({
-      client: makeClient(fetch),
-      config: makeConfig(),
-      now: FIXED_NOW,
+      delivery: {
+        enqueueExplicit: () => pending,
+        awaitTerminal: async () => pending,
+      },
     });
-
-    // Client-supplied idempotency key overrides the auto-derived one.
-    await tool.definition.execute("call-1", { content: "x", idempotencyKey: "user-stable-id" });
-    // No override → derived from tool-call id.
-    await tool.definition.execute("call-2", { content: "x" });
-    // Same client-supplied key again → same idempotency header.
-    await tool.definition.execute("call-3", { content: "x", idempotencyKey: "user-stable-id" });
-
-    expect(calls[0]?.headers["Idempotency-Key"]).toBe("user-stable-id");
-    expect(calls[1]?.headers["Idempotency-Key"]).toBe("openclaw-remember:call-2");
-    expect(calls[2]?.headers["Idempotency-Key"]).toBe("user-stable-id");
+    const result = await tool.definition.execute("call-1", { content: "note" });
+    expect(result.content[0]?.text).toContain("Queued durably");
+    expect(result.content[0]?.text).toContain("not yet verified");
+    expect(result.content[0]?.text).not.toContain("Remembered");
   });
 
-  it("defaults importance to 7 (higher than passive capture's 5)", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 202 }]);
+  it("surfaces dead delivery as a tool error", async () => {
+    const dead = row({ state: "dead", last_error: "401 auth" });
     const tool = createRememberTool({
-      client: makeClient(fetch),
-      config: makeConfig(),
-      now: FIXED_NOW,
+      delivery: {
+        enqueueExplicit: () => row(),
+        awaitTerminal: async () => dead,
+      },
     });
-
-    await tool.definition.execute("c", { content: "note" });
-
-    expect(JSON.parse(calls[0]!.body!).importance).toBe(7);
-  });
-
-  it("surfaces errors as tool errors, not throws", async () => {
-    const { fetch } = createMockFetch([{ status: 500, body: { error: "boom" } }]);
-    const tool = createRememberTool({
-      client: makeClient(fetch),
-      config: makeConfig(),
-      now: FIXED_NOW,
-    });
-
-    const result = await tool.definition.execute("c", { content: "note" });
+    const result = await tool.definition.execute("call-1", { content: "note" });
     expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("Musubi remember failed");
+    expect(result.content[0]?.text).toContain("401 auth");
+  });
+
+  it("does not claim a queue write when local persistence fails", async () => {
+    const tool = createRememberTool({
+      delivery: {
+        enqueueExplicit: () => {
+          throw new Error("disk full");
+        },
+        awaitTerminal: async () => undefined,
+      },
+    });
+    const result = await tool.definition.execute("call-1", { content: "note" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("was not queued");
   });
 });

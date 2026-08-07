@@ -18,8 +18,10 @@ import { MusubiConfigSchema } from "../src/config.js";
  */
 
 type JsonSchemaNode = {
-  type?: string;
+  type?: string | string[];
   properties?: Record<string, JsonSchemaNode>;
+  additionalProperties?: boolean | JsonSchemaNode;
+  patternProperties?: Record<string, JsonSchemaNode>;
   required?: string[];
   items?: JsonSchemaNode;
   anyOf?: Array<{ const?: unknown }>;
@@ -39,6 +41,8 @@ const manifestSchema: JsonSchemaNode = manifest.configSchema;
 // JSON.stringify → JSON.parse strips the symbols and leaves a plain
 // JSON-Schema-shaped object.
 const typeboxSchema: JsonSchemaNode = JSON.parse(JSON.stringify(MusubiConfigSchema));
+
+const AUTHORED_SECRET_INPUT_PATHS = new Set(["core.token"]);
 
 function propertiesOf(node: JsonSchemaNode): Record<string, JsonSchemaNode> {
   return node.properties ?? {};
@@ -76,8 +80,8 @@ describe("schema parity: src/config.ts ↔ openclaw.plugin.json", () => {
   });
 
   it("test_manifest_and_typebox_leaf_types_match", () => {
-    const pathsOf = (root: JsonSchemaNode): Map<string, string | undefined> => {
-      const map = new Map<string, string | undefined>();
+    const pathsOf = (root: JsonSchemaNode): Map<string, string | string[] | undefined> => {
+      const map = new Map<string, string | string[] | undefined>();
       walkPropertyPaths(root, [], (child, path) => {
         map.set(path.join("."), child.type);
       });
@@ -90,8 +94,32 @@ describe("schema parity: src/config.ts ↔ openclaw.plugin.json", () => {
 
     for (const [path, manType] of manPaths) {
       const tbType = tbPaths.get(path);
+      if (AUTHORED_SECRET_INPUT_PATHS.has(path)) {
+        expect(manType, `manifest SecretInput type at ${path}`).toEqual(["string", "object"]);
+        expect(tbType, `runtime resolved type at ${path}`).toEqual("string");
+        continue;
+      }
       expect(tbType, `type mismatch at ${path || "<root>"}`).toEqual(manType);
     }
+  });
+
+  it("test_manifest_declares_all_musubi_token_paths_as_secret_inputs", () => {
+    const manifestWithContracts = manifest as typeof manifest & {
+      configContracts?: {
+        secretInputs?: { paths?: Array<{ path?: string; expected?: string }> };
+      };
+    };
+    expect(manifestWithContracts.configContracts?.secretInputs?.paths).toEqual([
+      { path: "core.token", expected: "string" },
+      { path: "core.perAgentTokens.*", expected: "string" },
+    ]);
+
+    const manifestPerAgentTokens = get(manifestSchema, ["core", "perAgentTokens"]);
+    const typeboxPerAgentTokens = get(typeboxSchema, ["core", "perAgentTokens"]);
+    expect(
+      (manifestPerAgentTokens.additionalProperties as JsonSchemaNode | undefined)?.type,
+    ).toEqual(["string", "object"]);
+    expect(typeboxPerAgentTokens.patternProperties?.["^(.*)$"]?.type).toBe("string");
   });
 
   it("test_manifest_and_typebox_enum_members_match", () => {

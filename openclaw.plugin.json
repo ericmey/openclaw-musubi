@@ -1,7 +1,8 @@
 {
   "id": "musubi",
   "name": "Musubi Memory",
-  "description": "Connect OpenClaw agents to a Musubi memory core. Episodic capture mirroring, curated + concept recall via memory supplements, and presence-to-presence thought delivery over SSE.",
+  "description": "First-class durable Musubi memory provider for OpenClaw: native recall/store tools, verified episodic capture, and operator-visible delivery health.",
+  "kind": "memory",
   "homepage": "https://github.com/ericmey/openclaw-musubi",
   "author": "Eric Mey",
   "uiHints": {
@@ -20,7 +21,7 @@
       "label": "Per-Agent Tokens",
       "sensitive": true,
       "advanced": true,
-      "help": "Map OpenClaw agent ids to dedicated Musubi bearer tokens. Used in per-agent presence mode to keep each agent's identity isolated. Shape: {\"aoi\": \"${MUSUBI_TOKEN_AOI}\"}."
+      "help": "Map OpenClaw agent ids to dedicated Musubi bearer SecretRefs. Used in per-agent presence mode to keep each agent's identity isolated. Shape: {\"aoi\": {\"source\":\"exec\",\"provider\":\"onepassword\",\"id\":\"musubi-aoi\"}}."
     },
     "presence.defaultId": {
       "label": "Default Presence",
@@ -33,8 +34,8 @@
       "help": "Map OpenClaw agent ids to Musubi presences. Shape: {\"aoi\": \"eric/aoi\", \"rin\": \"eric/rin\"}."
     },
     "supplement.enabled": {
-      "label": "Prompt + Corpus Supplement",
-      "help": "When enabled, Musubi curated + concept results are blended into memory prompt assembly with authority labels."
+      "label": "Legacy Supplement Compatibility",
+      "help": "Deprecated compatibility setting retained for configuration migration. First-class Musubi retrieval uses native memory tools."
     },
     "supplement.planes": {
       "label": "Supplement Planes",
@@ -48,18 +49,23 @@
       "help": "Max results injected per memory turn. Keep small — prompt budget is limited."
     },
     "capture.mirrorOpenClawMemory": {
-      "label": "Mirror OpenClaw Memory Writes",
-      "help": "Hook OpenClaw's native memory write events and mirror them into Musubi episodic. Gives cross-modality continuity without replacing the native memory engine."
+      "label": "Legacy Capture Alias",
+      "advanced": true,
+      "help": "Deprecated alias for capture.completedTurns. Retained for one migration release."
+    },
+    "capture.completedTurns": {
+      "label": "Capture Completed Turns",
+      "help": "Durably queue completed OpenClaw turns into Musubi episodic memory."
     },
     "thoughts.enabled": {
-      "label": "Thought Delivery",
-      "help": "Subscribe to the Musubi thoughts SSE stream for this presence. Surfaces inbound thoughts from other presences (Claude Code, LiveKit, etc.)."
+      "label": "Legacy Thought Delivery",
+      "help": "Deprecated and inactive in this release. The old inbound SSE consumer had no OpenClaw context-delivery contract and is not registered by the first-class provider."
     },
     "thoughts.reconnect.maxBackoffMs": {
-      "label": "Thought Reconnect Max Backoff",
+      "label": "Legacy Thought Reconnect Max Backoff",
       "advanced": true,
       "placeholder": "30000",
-      "help": "Maximum exponential backoff between SSE reconnect attempts."
+      "help": "Deprecated compatibility setting; inactive in this release."
     }
   },
   "configSchema": {
@@ -75,7 +81,7 @@
             "format": "uri"
           },
           "token": {
-            "type": "string"
+            "type": ["string", "object"]
           },
           "requestTimeoutMs": {
             "type": "number",
@@ -85,7 +91,7 @@
           "perAgentTokens": {
             "type": "object",
             "additionalProperties": {
-              "type": "string"
+              "type": ["string", "object"]
             }
           }
         },
@@ -132,6 +138,9 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "completedTurns": {
+            "type": "boolean"
+          },
           "mirrorOpenClawMemory": {
             "type": "boolean"
           }
@@ -167,7 +176,18 @@
       "musubi_get",
       "musubi_remember",
       "musubi_think",
-      "musubi_recall"
+      "musubi_recall",
+      "memory_search",
+      "memory_get",
+      "memory_store"
     ]
+  },
+  "configContracts": {
+    "secretInputs": {
+      "paths": [
+        { "path": "core.token", "expected": "string" },
+        { "path": "core.perAgentTokens.*", "expected": "string" }
+      ]
+    }
   }
 }

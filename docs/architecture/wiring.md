@@ -1,101 +1,79 @@
 # Plugin wiring
 
-How the subsystems that slices #2–#8 shipped get composed into a single
-`definePluginEntry` registration, and how they shut down.
+> Current-state document. Verify with `npm test` and the loader-backed
+> `tests/plugin/loader-smoke.test.ts`.
 
-Entry point: [`src/index.ts`](../../src/index.ts) → delegates to
-[`src/plugin/bootstrap.ts`](../../src/plugin/bootstrap.ts).
+Entry point: `src/index.ts` delegates synchronously to
+`registerMusubi(...)` in `src/plugin/bootstrap.ts`.
+The deployment contract selects `plugins.slots.memory = "musubi"`.
 
-## Bootstrap sequence
+## Registration
 
-`bootstrap(opts)` runs in five phases:
+Registration is side-effect free but fail-closed:
 
-1. **Validate raw config** against `MusubiConfigSchema` (TypeBox). Fails
-   loud on invalid input with a pointer to the offending path — plugins
-   that load without memory would be a silent downgrade. `format: "uri"`
-   is registered against `FormatRegistry` at module load so `core.baseUrl`
-   constraints fire at validation time.
-2. **Construct a shared `MusubiClient`** from `config.core`. Every
-   subsystem gets the same instance so retry / idempotency / auth
-   rotation live in one place.
-3. **Build subsystems** from the shared client + config:
-   - `corpusSupplement` — `MemoryCorpusSupplement.search/get`
-   - `promptSupplement` — `MemoryPromptSectionBuilder`; synchronous
-     `build()` reads from a cache that the scheduler warms
-   - `captureMirror` — consumes `agent_end` events; swallows failures
-     so OpenClaw's native memory write is never blocked
-   - `recallTool` / `rememberTool` / `thinkTool` — agent-callable tools
-4. **Register capabilities** via `OpenClawPluginApi`:
-   - `registerMemoryCorpusSupplement(corpusSupplement)`
-   - `registerMemoryPromptSupplement(builder)` — the builder is a
-     plain function (`MemoryPromptSectionBuilder`), not the richer
-     `PromptSupplement` object; the wiring adapts.
-   - `registerTool(recall.definition)` / `remember` / `think`
-   - `on("agent_end", handler)` — handler extracts the last message
-     text into a `CaptureEvent` then calls `captureMirror.handleEvent`.
-     Mirror is fire-and-forget relative to the hook.
-5. **Start long-lived workers**:
-   - **Prompt-refresh scheduler** (only if `supplement.enabled !== false`)
-     — calls `promptSupplement.refresh()` once immediately, then on an
-     interval (default 60s). Errors are logged via `api.logger.warn`;
-     the interval keeps ticking. Re-entrance guard prevents overlapping
-     refreshes on a slow Musubi.
-   - **Thought-stream SSE consumer** (only if `thoughts.enabled !== false`)
-     — enters its own reconnect loop (`createThoughtStream(...).start()`).
-     The loop resolves only on `stop()`.
+1. TypeBox validates the materialized config.
+2. Every token is checked for unresolved `${...}` syntax, including hyphenated
+   placeholders that caused the 2026-08-07 incident.
+3. One exclusive memory capability is registered.
+4. Native and canonical Musubi tools are registered as per-agent factories.
+5. The `agent_end` hook, host-owned service, gateway status method, slash
+   command, and CLI status command are registered.
 
-Return value: `LifecycleHandle { stop(), isStopped() }`.
+No promise catches registration failure. Invalid configuration reaches the
+OpenClaw loader and cannot become a plugin reported as loaded but inert.
 
-## Registration order
+## Host-owned service
 
-The `bootstrap` integration test asserts this exact sequence so a
-regression surfaces immediately:
+`registerService({ id: "musubi-memory" })` owns all long-lived state:
 
-```
-registerMemoryCorpusSupplement
-registerMemoryPromptSupplement
-registerTool:musubi_search
-registerTool:musubi_recent
-registerTool:musubi_get
-registerTool:musubi_remember
-registerTool:musubi_think
-registerTool:musubi_recall
-on:agent_end
+- SQLite outbox at `<stateDir>/musubi/delivery-outbox.sqlite`;
+- lease recovery and delivery worker;
+- deterministic shutdown.
+
+The old inbound thought SSE subscriber is not registered. Its handler did not
+deliver received thoughts into OpenClaw context, so starting it would consume a
+durable event without providing the advertised capability. Outbound
+`musubi_think` remains a separate tool.
+
+Discovery and validation modes see registration metadata without opening
+sockets or databases. The full host service creates runtime state at start and
+closes it at stop.
+
+## Capture ordering
+
+```text
+translate whole turn
+  -> resolve per-agent presence/token
+  -> INSERT ... ON CONFLICT DO NOTHING
+  -> SELECT row and verify identity binding
+  -> return from agent_end
+  -> background claim/lease
+  -> receipt lookup when replaying
+  -> POST /v1/episodic
+  -> persist accepted object_id
+  -> GET canonical object
+  -> compare object_id + namespace + sha256(content)
+  -> mark verified and prune plaintext payload
 ```
 
-Supplements before tools → a config that disables supplements still
-registers tools (they're independent). Hooks last → the plugin is fully
-introspectable before any event can fire.
+Crash boundaries are explicit: a committed pending row survives restart; an
+accepted row never repeats POST; an orphaned lease returns to pending or
+accepted based on whether `object_id` was persisted.
 
-## Shutdown
+## Runtime verification
 
-`lifecycle.stop()` is idempotent and bi-phased:
+```bash
+npm run build
+npm test
+openclaw plugins inspect musubi --runtime --json
+openclaw musubi-status
+openclaw musubi-doctor --agent vesper
+```
 
-1. **Scheduler.stop()** (synchronous). Clears the interval; any
-   in-flight refresh completes but no new one starts.
-2. **`await thoughtStream.stop()`**. Aborts the current fetch, clears
-   the reconnect flag. The `AbortController` plus in-flight body drain
-   settle on the microtask queue — hence the `await`.
+The loader smoke creates an isolated OpenClaw state/config, selects Musubi in
+the memory slot, loads the built package through the real 2026.7.1 runtime,
+and verifies that the authored config is not mutated.
 
-Stopping the scheduler first means a slow refresh can't race against
-the client teardown.
-
-The plugin SDK's `definePluginEntry` signature doesn't expose an
-`unload` hook (see `node_modules/openclaw/dist/plugin-sdk/src/plugin-sdk/plugin-entry.d.ts`)
-so the host-side teardown path reaches the lifecycle via the
-module-scope `getLifecycle()` export. When / if upstream grows a
-`shutdown` hook, point it at `getLifecycle()?.stop()`.
-
-## Error modes
-
-- **Invalid config** → `register` rejects via `api.logger.error`; plugin
-  is left inert. OpenClaw marks the plugin failed.
-- **Network failure on first scheduler tick** → logged, interval keeps
-  ticking; supplement cache stays empty until the next successful tick
-  (the supplement returns an empty build-output in that state).
-- **Musubi 401/403 on stream** → stream handler logs `auth error
-  (status=N)`; reconnect loop honors 403 as terminal (see
-  `src/thoughts/stream.ts`).
-- **Capture mirror failure** → swallowed inside the mirror; OpenClaw's
-  native memory write is unaffected (ADR-0001: sidecar with authority
-  on its own plane, non-blocking on Musubi's).
+The doctor is the end-to-end runtime proof. It uses the provider's durable
+outbox rather than bypassing it with a direct write, verifies canonical readback
+and semantic retrieval, and soft-archives its diagnostic object afterward.

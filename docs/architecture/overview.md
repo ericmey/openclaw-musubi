@@ -1,133 +1,94 @@
-# Architecture Overview
+# Architecture overview
 
-## The problem
+> Current-state document. Re-verify with `npm test` and
+> `openclaw plugins inspect musubi --runtime --json`; do not infer live state
+> from this page's age.
 
-OpenClaw agents live in many modalities at once. The same named agent might
-run as a CLI session, a Discord-facing worker, a LiveKit voice call, and a
-browser companion — often for the same human. Each modality has its own
-short-term memory, and OpenClaw ships a native long-term memory plugin
-family (`memory-core`, `memory-lancedb`, `memory-wiki`). But none of those
-know what's happening in another modality. A thought captured in voice
-doesn't surface in chat. A fact a user told their Discord-facing agent is
-invisible to their CLI session.
+## Role
 
-[Musubi](https://github.com/ericmey/musubi) is designed to be the memory
-plane that spans them. Its three-plane model (episodic / curated / concept)
-plus artifact plane plus lifecycle engine plus presence-scoped thoughts
-gives every modality a shared, durable, cross-referenced memory.
+Musubi is OpenClaw's selected first-class memory provider. The plugin is a
+careful remote-service adapter: durable local delivery, per-agent identity,
+native memory tools, and provider health live here; lifecycle, retrieval,
+planes, and canonical object storage live in Musubi.
 
-This plugin is the bridge: it makes OpenClaw agents first-class citizens of
-a Musubi deployment.
+The active topology is:
 
-## What the plugin is
+```text
+OpenClaw agent turn
+  -> agent_end hook
+  -> local SQLite outbox (committed + read back)
+  -> delivery worker
+  -> Musubi POST acceptance
+  -> persisted object_id
+  -> canonical GET readback
+  -> verified
 
-`openclaw-musubi` is an **OpenClaw plugin** that talks to a **Musubi core**
-over HTTP and Server-Sent Events. It does not ship a memory core. It does
-not bundle an embedding model. It does not own storage. Everything
-substantive runs on the Musubi side; this plugin is a thin, careful client
-that exposes Musubi's value to OpenClaw agents through the plugin SDK's
-official extension points.
+OpenClaw memory_search / memory_get / memory_store
+  -> per-agent presence + token resolution
+  -> Musubi canonical API
+```
 
-## Integration model: sidecar with authority
+The plugin declares `kind: "memory"`, registers
+`registerMemoryCapability(...)`, and is selected by
+`plugins.slots.memory = "musubi"`. It does not register additive corpus or
+prompt supplements and it does not restore `memory-core` as a parallel
+primary. [ADR-0004](../decisions/0004-first-class-memory-provider.md) is the
+current decision; ADR-0001 is historical.
 
-OpenClaw's plugin SDK offers two paths for memory integration:
+## Memory behavior
 
-1. **Exclusive memory capability** via `registerMemoryCapability` +
-   `registerMemoryRuntime`. The plugin becomes *the* memory for OpenClaw
-   agents. One active memory plugin per OpenClaw install.
-2. **Additive supplements** via `registerMemoryCorpusSupplement` and
-   `registerMemoryPromptSupplement`. The plugin contributes alongside
-   whatever memory engine is active.
+### Completed-turn capture
 
-We take the additive path. This is **sidecar-with-authority**: OpenClaw's
-native memory engine keeps running and owns the prompt-building latency
-budget. Musubi contributes labeled results into the blended view, and the
-model weighs authoritative sources (curated knowledge, synthesized concepts)
-higher than raw chatter based on provenance labels in the prompt.
+The capture adapter selects the final assistant response and its nearest
+preceding user message, excludes tool/system payloads, and derives a stable
+source identity from the run id or a SHA-256 digest of agent, session, and
+content. The hook returns only after SQLite commits and reads back the outbox
+row. It never waits for the network and never calls a failed delivery
+"captured."
 
-The full reasoning for choosing this model lives in
-[`ADR-0001: Sidecar with authority`](../decisions/0001-sidecar-with-authority.md).
+### Delivery truth
 
-## Capabilities
+The ledger distinguishes `pending`, `inflight`, `accepted`, `verified`, and
+`dead`. POST success is acceptance, not storage proof. The canonical GET must
+match object id, namespace, and content digest before a row becomes verified.
+Before replaying an attempted write, the worker performs receipt lookup; if
+that lookup is unavailable or degraded, it defers rather than risk a duplicate.
 
-Five pieces, layered so each is independently useful and each raises the
-ceiling of what the previous can do:
+### Native tools
 
-### 1. Memory corpus supplement
+- `memory_search` / `musubi_search`: semantic retrieval across readable planes.
+- `memory_get` / `musubi_get`: exact object readback by plane, namespace, and id.
+- `memory_store` / `musubi_remember`: durable explicit capture. Results say
+  `verified`, `queued`, or `dead`; accepted POSTs are never called remembered.
+- `musubi_recent`, `musubi_think`, and the temporary `musubi_recall` alias retain
+  the broader canonical Musubi surface.
 
-Reads Musubi's curated and concept planes as a secondary corpus during
-OpenClaw memory searches. Results come back with plane labels (`curated`,
-`concept`), scores, and namespace provenance. OpenClaw's ranker blends them
-with native results.
+### Prompt and compaction
 
-### 2. Memory prompt supplement
+The exclusive capability contributes synchronous tool guidance only. It does
+not inject a global remote-result cache because one shared cache could put one
+agent's presence into another agent's prompt. Completed turns are already
+durably queued at `agent_end`, so Musubi does not claim OpenClaw's
+file-oriented pre-compaction flush plan. This is deliberate provider behavior,
+not an omitted sidecar fallback.
 
-Injects a labeled section into the memory prompt: "Curated knowledge from
-Musubi (high provenance): …". The labeling is the authority mechanism — the
-model already knows to weigh curated facts above raw episodic mentions when
-they disagree.
+## Degraded behavior
 
-### 3. Capture mirroring
-
-Hooks OpenClaw's memory-write events and mirrors each capture into Musubi's
-episodic plane. This is the flywheel: every OpenClaw modality feeds the
-shared memory automatically, without agents needing to remember to call a
-tool.
-
-### 4. Canonical agent-tools surface
-
-Per Musubi ADR 0032, the plugin exposes the five-tool canonical surface
-every adapter implements identically (MCP, LiveKit, OpenClaw):
-
-- `musubi_recent` — recency-ordered episodic, no query needed. The
-  "what was I just doing?" tool. Today scoped to the calling presence's
-  own episodic stream; cross-modal (`<tenant>/*/episodic`) lights up
-  when Musubi `slice-retrieve-recent` (#288) and `slice-api-retrieve-
-  wildcards` ship.
-- `musubi_search` — hybrid retrieve across all planes with full score
-  + rerank. Slower than the supplement but richer; agents call it when
-  the supplement misses or when they need artifacts.
-- `musubi_get` — fetch one object's full content + metadata by id after
-  a search snippet looks load-bearing. Read-only `GET` per plane; the
-  agent copies `(plane, namespace, object_id)` straight from the search
-  row.
-- `musubi_remember` — explicit episodic capture with importance + topics.
-  Lets agents pin something as "this matters" beyond the default mirror.
-- `musubi_think` — send a thought to another presence. "Tell my Claude
-  Code session that the deploy is done."
-
-Plus `musubi_recall` as a one-release deprecation alias for
-`musubi_search` — emits a logger.warn on each call and forwards to the
-canonical body. Drops in the next minor release.
-
-### 5. SSE thought consumer
-
-Subscribes to `/thoughts/stream` for the configured presence. Inbound
-thoughts from other presences surface in the agent's next turn as context,
-not as polling-delayed updates. When the stream drops, the client
-reconnects with exponential backoff and replays via `Last-Event-ID`.
+- Invalid config or unresolved `${...}` credentials fail registration before
+  the capability is advertised.
+- A local SQLite enqueue failure is logged as an operator-visible capture
+  failure and never rounded to success.
+- Retryable transport failures remain durable with bounded backoff.
+- 401/403 and identity/readback mismatches become `dead` rows.
+- Status distinguishes plugin registration, service running state, queue
+  backlog, dead rows, oldest pending age, failure streak, and last verified
+  delivery.
 
 ## Non-goals
 
-- **Replace OpenClaw's native memory.** We're additive; users keep their
-  `memory-lancedb` or similar. If Musubi becomes so load-bearing that the
-  native engine adds no value, a future plugin (or a mode flip in this one)
-  could go exclusive. Today we stay sidecar.
-- **Run a Musubi core ourselves.** This plugin does not embed, chunk, or
-  store. Everything meaningful is a Musubi API call.
-- **Support arbitrary memory backends.** The plugin talks to Musubi's HTTP
-  API specifically. Other backends should build their own plugins.
-- **Own UI/UX beyond config + status.** Memory inspection, curated editing,
-  and concept promotion live in Musubi (and its Obsidian-vault store of
-  record).
-
-## Where the design lives
-
-- This file: what and why at the project level.
-- [`presence-model.md`](./presence-model.md) — how agent identity maps to
-  Musubi namespaces + scoped tokens.
-- [`transport.md`](./transport.md) — HTTP + SSE behavior, retries,
-  reconnect, dedup.
-- [`../api-contract.md`](../api-contract.md) — the client-side expectations
-  that mirror the Musubi canonical-api consumer contract.
-- [`../decisions/`](../decisions/) — ADRs for every load-bearing choice.
+- Implement OpenClaw's builtin/qmd local search-manager runtime. Musubi owns a
+  remote service and must not fabricate `dbPath`, chunk counts, or local backend
+  identity.
+- Run a Musubi core inside the plugin.
+- Treat documentation as runtime proof. Current-state claims must remain tied
+  to the commands at the top of this page.

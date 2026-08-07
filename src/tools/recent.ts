@@ -1,7 +1,7 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
-import { resolvePresence } from "../presence/resolver.js";
+import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import { RecentParameters, type RecentParams } from "./parameters.js";
 
 /**
@@ -77,7 +77,7 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
         "Recent activity from the calling presence's episodic memory, newest-first. No query needed — ask 'what was I just doing?' and the agent gets the last N captures. Cross-modal scope is forthcoming; today, presence-only.",
       parameters: RecentParameters,
       async execute(_toolCallId, params) {
-        let presence;
+        let presence: PresenceContext;
         try {
           presence = resolvePresence(config, { agentId });
         } catch (err) {

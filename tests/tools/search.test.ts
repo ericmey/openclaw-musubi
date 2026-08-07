@@ -62,6 +62,7 @@ describe("createSearchTool — canonical musubi_search", () => {
     const body = JSON.parse(calls[0]!.body!);
     expect(body.mode).toBe("deep");
     expect(body.query_text).toBe("find the thing");
+    expect(body.state_filter).toEqual(["provisional", "matured", "promoted"]);
   });
 
   it("respects the planes filter when caller restricts", async () => {
@@ -122,5 +123,19 @@ describe("createSearchTool — canonical musubi_search", () => {
 
     expect(result.isError).toBeFalsy();
     expect(result.content[0]?.text).toContain("No Musubi results");
+  });
+
+  it("never launders a degraded retrieval envelope into an ordinary empty result", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { results: [], warnings: ["one plane timed out"] } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("c", { query: "missing" });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0]?.text).toContain("retrieval was degraded");
+    expect(result.content[0]?.text).toContain("one plane timed out");
+    expect(result.content[0]?.text).not.toContain('No Musubi results for "missing"');
   });
 });

@@ -1,53 +1,23 @@
-/**
- * Plugin bootstrap — consumes the subsystems shipped in slices #2–#8
- * (musubi client, presence resolver, corpus + prompt supplements,
- * capture mirror, thought stream, agent tools) and wires them into a
- * single `definePluginEntry(...)` registration so OpenClaw can load
- * the plugin.
- *
- * Responsibilities (in order):
- *
- *   1. Validate the raw plugin config against the TypeBox schema; fail
- *      loud on invalid config so misconfigured plugins don't silently
- *      run without memory.
- *   2. Construct a single `MusubiClient` shared across all subsystems.
- *   3. Build the supplement builders, capture mirror, thought stream,
- *      and the three agent tools from the config + client.
- *   4. Register every capability with `OpenClawPluginApi`.
- *   5. Start the prompt-refresh interval + thought-stream SSE consumer
- *      and return a `LifecycleHandle` so OpenClaw can stop them on
- *      plugin unload.
- */
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 
 import { FormatRegistry } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
-import { createCaptureMirror } from "../capture/mirror.js";
+import type { OpenClawPluginApi } from "../api.js";
+import type { CaptureEvent } from "../capture/translate.js";
 import { type MusubiConfig, MusubiConfigSchema } from "../config.js";
+import { DeliveryController } from "../delivery/controller.js";
+import { formatDoctor, runDeepDoctor } from "../doctor.js";
 import { MusubiClient } from "../musubi/client.js";
 import type { FetchLike } from "../musubi/types.js";
-import { createCorpusSupplement } from "../supplement/corpus.js";
-import { createPromptSupplement } from "../supplement/prompt.js";
-import { createThoughtStream, type ThoughtStream } from "../thoughts/stream.js";
 import { createGetTool } from "../tools/get.js";
 import { createRecallTool } from "../tools/recall.js";
 import { createRecentTool } from "../tools/recent.js";
 import { createRememberTool } from "../tools/remember.js";
 import { createSearchTool } from "../tools/search.js";
 import { createThinkTool } from "../tools/think.js";
-import {
-  createIntervalScheduler,
-  createLifecycle,
-  type LifecycleHandle,
-  type Scheduler,
-  type Stoppable,
-} from "./lifecycle.js";
 
-// Register `format: "uri"` once on module load. The plugin config
-// declares `core.baseUrl` with `format: "uri"` (see `src/config.ts`),
-// but TypeBox's format registry is empty by default — `Value.Check`
-// against an unregistered format throws. A lightweight `new URL()`
-// parse is exactly the shape validation we want.
 if (!FormatRegistry.Has("uri")) {
   FormatRegistry.Set("uri", (value: string) => {
     try {
@@ -59,255 +29,295 @@ if (!FormatRegistry.Has("uri")) {
   });
 }
 
-/**
- * Structural subset of `OpenClawPluginApi` this plugin touches.
- *
- * Declared locally so tests can spy on a plain object without pulling
- * the full upstream type (and its transitive imports). The real
- * `OpenClawPluginApi` from `openclaw/plugin-sdk/plugin-entry` is a
- * superset of this. Mirrors the upstream `PluginLogger` surface —
- * string-only messages, no structured fields — so structured log
- * output is `stringify`-and-concat'd at the call site.
- */
-export type BootstrapPluginApi = {
-  readonly logger: {
-    info(message: string): void;
-    warn(message: string): void;
-    error(message: string): void;
-    debug?(message: string): void;
-  };
-  registerMemoryCorpusSupplement(supplement: unknown): void;
-  registerMemoryPromptSupplement(builder: unknown): void;
-  registerTool(tool: unknown, opts?: unknown): void;
-  on(hookName: "agent_end", handler: (...args: unknown[]) => unknown): void;
-};
-
-export type BootstrapOptions = {
-  readonly api: BootstrapPluginApi;
+export type RegisterOptions = {
+  readonly api: OpenClawPluginApi;
   readonly rawConfig: unknown;
-  // Test-injection hooks. Production defaults live inside.
   readonly fetch?: FetchLike;
-  readonly now?: () => Date;
-  /** Override the scheduler factory (tests inject a fake to assert
-   * start/stop without real timers). */
-  readonly schedulerFactory?: (fn: () => Promise<void>, intervalMs: number) => Scheduler;
-  /** Override the stream factory (tests inject a fake so no real SSE
-   * reconnect loop spins up). */
-  readonly thoughtStreamFactory?: (args: {
-    config: MusubiConfig;
-    fetch?: FetchLike;
-    client?: MusubiClient;
-  }) => ThoughtStream;
-  /** Prompt-supplement refresh interval. Default 60s. */
-  readonly refreshIntervalMs?: number;
 };
 
-const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
+export type RegisteredMusubi = {
+  readonly config: MusubiConfig;
+  readonly delivery: DeliveryController;
+};
 
-export async function bootstrap(options: BootstrapOptions): Promise<LifecycleHandle> {
+/**
+ * Register the first-class Musubi memory provider synchronously. Validation
+ * happens before any capability is advertised so loader diagnostics cannot
+ * report a configured provider whose credentials are still placeholders.
+ */
+export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
   const { api } = options;
-
-  // 1. Validate config. `Value.Check` returns a boolean; `Value.Cast`
-  //    would coerce silently which is the opposite of what we want —
-  //    misconfigured plugins must fail loud so OpenClaw surfaces the
-  //    install-time error to the operator.
-  if (!Value.Check(MusubiConfigSchema, options.rawConfig)) {
-    const errors = [...Value.Errors(MusubiConfigSchema, options.rawConfig)];
-    const detail = errors.length > 0 ? errors[0] : undefined;
-    const where = detail ? ` at ${detail.path || "<root>"}: ${detail.message}` : "";
-    throw new Error(`musubi: invalid plugin config${where}`);
-  }
-  const config = options.rawConfig as MusubiConfig;
-
-  // 2. Shared HTTP client. One instance across every subsystem so
-  //    retry/idempotency budgets + auth rotation all live in one place.
+  const config = validateConfig(options.rawConfig);
+  warnDeprecatedConfig(api, config);
   const client = new MusubiClient({
     baseUrl: config.core.baseUrl,
     token: config.core.token,
     requestTimeoutMs: config.core.requestTimeoutMs,
     fetch: options.fetch,
   });
+  const delivery = new DeliveryController({ client, config, logger: api.logger });
 
-  // 3. Build every subsystem from the shared client + config.
-  const corpusSupplement = createCorpusSupplement({ client, config });
-  const promptSupplement = createPromptSupplement({ client, config });
-  const captureMirror = createCaptureMirror({
-    client,
-    config,
-    logger: {
-      warn: (msg, fields) => api.logger.warn(fields ? `${msg} ${JSON.stringify(fields)}` : msg),
-      debug: api.logger.debug
-        ? (msg, fields) => api.logger.debug!(fields ? `${msg} ${JSON.stringify(fields)}` : msg)
-        : undefined,
-    },
-    now: options.now,
+  api.registerMemoryCapability({
+    // Musubi captures every completed turn durably at agent_end, so it does not
+    // use OpenClaw's file-oriented pre-compaction flush plan. The provider's
+    // prompt contract is tool guidance, not a global cache that could leak one
+    // agent's presence into another agent's prompt.
+    promptBuilder: ({ availableTools }) => buildMemoryPrompt(availableTools),
   });
-  // 4. Register capabilities. Order matters only loosely (supplements
-  //    before tools, hooks last) but we keep it stable for test #11.
-  api.registerMemoryCorpusSupplement(corpusSupplement);
-  const promptBuilder = (params: {
-    availableTools: Set<string>;
-    citationsMode?: string;
-  }): string[] =>
-    promptSupplement.build({
-      availableTools: params.availableTools,
-      citationsMode: params.citationsMode,
+
+  registerTools(api, client, config, delivery);
+
+  api.on("agent_end", async (event: unknown, ctx: { agentId?: string }) => {
+    const capture = translateAgentEndEvent(event, ctx.agentId);
+    const captureEnabled =
+      config.capture?.completedTurns ?? config.capture?.mirrorOpenClawMemory ?? true;
+    if (!capture || !captureEnabled) return;
+    try {
+      delivery.enqueueCapture(capture);
+    } catch (error) {
+      // A local enqueue failure is not allowed to break the user turn, but it
+      // is loud and operator-visible. It is never described as captured.
+      api.logger.error(`musubi: agent_end capture was not queued — ${errorMessage(error)}`);
+    }
+  });
+
+  api.registerService({
+    id: "musubi-memory",
+    start: async (ctx) => {
+      delivery.start(join(ctx.stateDir, "musubi", "delivery-outbox.sqlite"));
+      api.logger.info(
+        `musubi first-class memory provider started (base_url=${config.core.baseUrl})`,
+      );
+    },
+    stop: async () => {
+      await delivery.stop();
+    },
+  });
+
+  api.registerGatewayMethod(
+    "musubi.status",
+    ({ respond }) => respond(true, { provider: "musubi", ...delivery.status() }),
+    { scope: "operator.read" },
+  );
+  api.registerCommand({
+    name: "musubi-status",
+    description: "Show Musubi memory delivery health.",
+    handler: async () => ({ text: formatStatus(delivery.status()) }),
+  });
+  api.registerCommand({
+    name: "musubi-doctor",
+    description: "Run a deep write, readback, retrieval, and cleanup proof for Musubi memory.",
+    requireAuth: true,
+    handler: async (ctx) => ({
+      text: formatDoctor(await runDeepDoctor({ client, config, delivery, agentId: ctx.agentId })),
+    }),
+  });
+  api.registerCli(
+    ({ program }) => {
+      program
+        .command("musubi-status")
+        .description("Show Musubi memory delivery health")
+        .action(() => {
+          process.stdout.write(`${JSON.stringify({ provider: "musubi", ...delivery.status() })}\n`);
+        });
+      program
+        .command("musubi-doctor")
+        .description("Run a deep Musubi provider proof")
+        .option("--agent <id>", "OpenClaw agent identity to prove")
+        .action(async (cliOptions: { agent?: string }) => {
+          const result = await runDeepDoctor({
+            client,
+            config,
+            delivery,
+            agentId: cliOptions.agent,
+          });
+          process.stdout.write(`${JSON.stringify(result)}\n`);
+          if (!result.ok) process.exitCode = 1;
+        });
+    },
+    {
+      commands: ["musubi-status", "musubi-doctor"],
+      descriptors: [
+        {
+          name: "musubi-status",
+          description: "Show Musubi memory delivery health",
+          hasSubcommands: false,
+        },
+        {
+          name: "musubi-doctor",
+          description: "Run a deep Musubi provider proof",
+          hasSubcommands: false,
+        },
+      ],
+    },
+  );
+
+  return { config, delivery };
+}
+
+function warnDeprecatedConfig(api: OpenClawPluginApi, config: MusubiConfig): void {
+  if (config.supplement) {
+    api.logger.warn(
+      "musubi: config.supplement is deprecated and ignored by the first-class provider",
+    );
+  }
+  if (config.thoughts) {
+    api.logger.warn(
+      "musubi: config.thoughts is deprecated; inbound thought delivery is not shipped",
+    );
+  }
+  if (config.capture?.mirrorOpenClawMemory !== undefined) {
+    api.logger.warn(
+      "musubi: capture.mirrorOpenClawMemory is deprecated; use capture.completedTurns",
+    );
+  }
+}
+
+function validateConfig(rawConfig: unknown): MusubiConfig {
+  if (!Value.Check(MusubiConfigSchema, rawConfig)) {
+    const detail = [...Value.Errors(MusubiConfigSchema, rawConfig)][0];
+    const where = detail ? ` at ${detail.path || "<root>"}: ${detail.message}` : "";
+    throw new Error(`musubi: invalid plugin config${where}`);
+  }
+  const config = rawConfig as MusubiConfig;
+  const secrets = [config.core.token, ...Object.values(config.core.perAgentTokens ?? {})];
+  if (secrets.some((value) => /\$\{[^}]+\}/u.test(value))) {
+    throw new Error(
+      "musubi: unresolved secret placeholder in core token configuration; refusing to load",
+    );
+  }
+  return config;
+}
+
+function buildMemoryPrompt(availableTools: Set<string>): string[] {
+  const search = availableTools.has("memory_search") ? "memory_search" : "musubi_search";
+  const get = availableTools.has("memory_get") ? "memory_get" : "musubi_get";
+  const store = availableTools.has("memory_store") ? "memory_store" : "musubi_remember";
+  return [
+    "## Musubi memory",
+    `Use ${search} when prior events, decisions, preferences, or relationships may matter. Use ${get} for exact-object grounding and ${store} for deliberate durable memory. A store result is truthful about queued versus verified delivery; do not describe queued data as stored.`,
+  ];
+}
+
+function registerTools(
+  api: OpenClawPluginApi,
+  client: MusubiClient,
+  config: MusubiConfig,
+  delivery: DeliveryController,
+): void {
+  const factory = <
+    T extends {
+      definition: {
+        name: string;
+        description: string;
+        parameters: unknown;
+        execute: (...args: never[]) => unknown;
+      };
+    },
+  >(
+    create: (ctx: { agentId?: string }) => T,
+    name: string,
+  ) => {
+    const toolFactory = (ctx: { agentId?: string }) => {
+      const definition = create(ctx).definition;
+      return { ...definition, label: name, name };
+    };
+    api.registerTool(toolFactory as Parameters<OpenClawPluginApi["registerTool"]>[0], {
+      names: [name],
     });
-  api.registerMemoryPromptSupplement(promptBuilder);
-  // Register tools as factories so each execution receives the active
-  // agent's identity from OpenClaw's runtime context. Static tool
-  // registration captures the default presence once at load time,
-  // which breaks per-agent token isolation.
-  // Canonical agent-tools surface per ADR 0032 — five tools every Musubi
-  // adapter exposes identically. Plus the one-release deprecation alias
-  // `musubi_recall` → `musubi_search`.
-  api.registerTool(
-    (ctx: { agentId?: string }) =>
-      createSearchTool({ client, config, agentId: ctx.agentId }).definition,
-    { name: "musubi_search" },
-  );
-  api.registerTool(
-    (ctx: { agentId?: string }) =>
-      createRecentTool({ client, config, agentId: ctx.agentId }).definition,
-    { name: "musubi_recent" },
-  );
-  api.registerTool(
-    (ctx: { agentId?: string }) =>
-      createGetTool({ client, config, agentId: ctx.agentId }).definition,
-    { name: "musubi_get" },
-  );
-  api.registerTool(
-    (ctx: { agentId?: string }) =>
-      createRememberTool({ client, config, agentId: ctx.agentId }).definition,
-    { name: "musubi_remember" },
-  );
-  api.registerTool(
-    (ctx: { agentId?: string }) =>
-      createThinkTool({ client, config, agentId: ctx.agentId }).definition,
-    { name: "musubi_think" },
-  );
-  // Deprecation alias — drops in the next minor release.
-  api.registerTool(
-    (ctx: { agentId?: string }) =>
+  };
+
+  factory((ctx) => createSearchTool({ client, config, agentId: ctx.agentId }), "musubi_search");
+  factory((ctx) => createSearchTool({ client, config, agentId: ctx.agentId }), "memory_search");
+  factory((ctx) => createRecentTool({ client, config, agentId: ctx.agentId }), "musubi_recent");
+  factory((ctx) => createGetTool({ client, config, agentId: ctx.agentId }), "musubi_get");
+  factory((ctx) => createGetTool({ client, config, agentId: ctx.agentId }), "memory_get");
+  factory((ctx) => createRememberTool({ delivery, agentId: ctx.agentId }), "musubi_remember");
+  factory((ctx) => createRememberTool({ delivery, agentId: ctx.agentId }), "memory_store");
+  factory((ctx) => createThinkTool({ client, config, agentId: ctx.agentId }), "musubi_think");
+  factory(
+    (ctx) =>
       createRecallTool({
         client,
         config,
         agentId: ctx.agentId,
-        logger: { warn: (msg) => api.logger.warn(msg) },
-      }).definition,
-    { name: "musubi_recall" },
+        logger: { warn: (message) => api.logger.warn(message) },
+      }),
+    "musubi_recall",
   );
-
-  // `agent_end` → `capture-mirror.handleEvent`. Failures are swallowed
-  // inside the mirror so a Musubi outage never blocks OpenClaw's own
-  // memory write (ADR-0001).
-  api.on("agent_end", ((event: unknown, ctx: { agentId?: string }) => {
-    const captureEvent = translateAgentEndEvent(event, ctx.agentId);
-    if (captureEvent === undefined) return;
-    void captureMirror.handleEvent(captureEvent);
-  }) as unknown as (...args: unknown[]) => unknown);
-
-  // 5. Start long-lived workers. `supplement.enabled !== false` →
-  //    prompt-refresh loop; `thoughts.enabled !== false` → SSE consumer.
-  const supplementEnabled = config.supplement?.enabled !== false;
-  const thoughtsEnabled = config.thoughts?.enabled !== false;
-
-  const schedulerFactory =
-    options.schedulerFactory ??
-    ((fn, intervalMs) =>
-      createIntervalScheduler({
-        fn,
-        intervalMs,
-        onError: (err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          api.logger.warn(`musubi: prompt-supplement refresh failed — ${message}`);
-        },
-      }));
-
-  let scheduler: Scheduler | undefined;
-  if (supplementEnabled) {
-    scheduler = schedulerFactory(
-      () => promptSupplement.refresh(),
-      options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS,
-    );
-    scheduler.start();
-  }
-
-  let thoughtStream: Stoppable | undefined;
-  if (thoughtsEnabled) {
-    const streamFactory =
-      options.thoughtStreamFactory ??
-      ((args) =>
-        createThoughtStream({
-          config: args.config,
-          fetch: args.fetch,
-          maxBackoffMs: config.thoughts?.reconnect?.maxBackoffMs,
-          client: args.client,
-        }));
-    const stream = streamFactory({ config, fetch: options.fetch, client });
-    // start() enters the reconnect loop; we don't await it (it blocks
-    // while running and resolves only on stop()).
-    void stream.start({
-      onThought: () => {
-        /* handler attachment is a future slice — today, the stream's
-           presence is what matters. Observability-only subscribers can
-           tail the stream without blocking the plugin load path. */
-      },
-      onAuthError: (status) =>
-        api.logger.warn(`musubi: thought-stream auth error (status=${status})`),
-    });
-    thoughtStream = { stop: () => stream.stop() };
-  }
-
-  api.logger.info(
-    `musubi plugin loaded (supplement=${supplementEnabled}, thoughts=${thoughtsEnabled}, base_url=${config.core.baseUrl})`,
-  );
-
-  return createLifecycle({ scheduler, thoughtStream });
 }
 
-/**
- * OpenClaw's `agent_end` event carries `messages: unknown[]`. The
- * capture-mirror expects a narrower `CaptureEvent` shape (id + content
- * minimum). This adapter extracts the last message text as the capture
- * content and synthesizes an id — sufficient for the wiring contract
- * test; a richer extraction is owned by a future slice if + when
- * OpenClaw exposes a canonical "capture-eligible" extraction helper.
- */
-function translateAgentEndEvent(
-  event: unknown,
-  agentIdFromContext?: string,
-):
-  | {
-      id: string;
-      content: string;
-      timestamp?: string;
-      agentId?: string;
-    }
-  | undefined {
+export function translateAgentEndEvent(event: unknown, agentId?: string): CaptureEvent | undefined {
   if (!event || typeof event !== "object") return undefined;
-  const e = event as {
-    messages?: unknown[];
-    runId?: unknown;
-    sessionId?: unknown;
+  const candidate = event as { messages?: unknown[]; runId?: unknown; sessionId?: unknown };
+  if (!Array.isArray(candidate.messages)) return undefined;
+
+  let assistant: string | undefined;
+  let user: string | undefined;
+  for (let index = candidate.messages.length - 1; index >= 0; index -= 1) {
+    const message = candidate.messages[index];
+    const role = extractRole(message);
+    const text = extractMessageText(message);
+    if (!text) continue;
+    if (!assistant && role === "assistant") {
+      assistant = text;
+      continue;
+    }
+    if (assistant && role === "user") {
+      user = text;
+      break;
+    }
+  }
+  if (!assistant) return undefined;
+  const content = user ? `User:\n${user}\n\nAssistant:\n${assistant}` : `Assistant:\n${assistant}`;
+  const runId = typeof candidate.runId === "string" ? candidate.runId : undefined;
+  const sessionId = typeof candidate.sessionId === "string" ? candidate.sessionId : "unknown";
+  const stableDigest = createStableDigest(`${agentId ?? "default"}\n${sessionId}\n${content}`);
+  return {
+    id: runId ? `agent-end:${runId}` : `agent-end:${stableDigest}`,
+    content,
+    agentId,
   };
-  if (!Array.isArray(e.messages) || e.messages.length === 0) return undefined;
-
-  const last = e.messages[e.messages.length - 1];
-  const content = extractMessageText(last);
-  if (content === undefined || content.length === 0) return undefined;
-
-  const id =
-    (typeof e.runId === "string" && e.runId) ||
-    (typeof e.sessionId === "string" && e.sessionId) ||
-    `agent_end-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  return { id, content, agentId: agentIdFromContext };
 }
 
-function extractMessageText(msg: unknown): string | undefined {
-  if (!msg || typeof msg !== "object") return undefined;
-  const m = msg as { content?: unknown; text?: unknown };
-  if (typeof m.content === "string") return m.content;
-  if (typeof m.text === "string") return m.text;
-  return undefined;
+function extractRole(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const role = (message as { role?: unknown }).role;
+  return typeof role === "string" ? role : undefined;
+}
+
+function extractMessageText(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const value = (message as { content?: unknown; text?: unknown }).content;
+  if (typeof value === "string") return value.trim() || undefined;
+  if (Array.isArray(value)) {
+    const text = value
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const row = part as { type?: unknown; text?: unknown };
+        return row.type === "text" && typeof row.text === "string" ? row.text : "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    return text || undefined;
+  }
+  const fallback = (message as { text?: unknown }).text;
+  return typeof fallback === "string" && fallback.trim() ? fallback.trim() : undefined;
+}
+
+function createStableDigest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function formatStatus(status: ReturnType<DeliveryController["status"]>): string {
+  return [
+    `Musubi memory: ${status.running ? (status.degraded ? "degraded" : "healthy") : "not running"}`,
+    `pending=${status.pending} dead=${status.dead} failures=${status.consecutiveFailures}`,
+    `oldest_pending_ms=${status.oldestPendingAgeMs} last_verified_ms=${status.lastVerifiedAtMs ?? "never"}`,
+  ].join("\n");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

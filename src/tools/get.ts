@@ -1,7 +1,7 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError, NotFoundError } from "../musubi/errors.js";
-import { resolvePresence } from "../presence/resolver.js";
+import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import { GetParameters, type GetParams } from "./parameters.js";
 
 /**
@@ -67,7 +67,7 @@ export function createGetTool(options: CreateGetToolOptions): GetTool {
         "Fetch the full content + metadata of one Musubi object by id. Use after `musubi_recall` when a snippet looks load-bearing and the agent needs to drill into the source. Pass the `plane`, `namespace`, and `object_id` straight from the recall result.",
       parameters: GetParameters,
       async execute(_toolCallId, params) {
-        let presence;
+        let presence: PresenceContext;
         try {
           presence = resolvePresence(config, { agentId });
         } catch (err) {

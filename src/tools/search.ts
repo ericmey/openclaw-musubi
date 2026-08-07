@@ -1,17 +1,16 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
-import { resolvePresence } from "../presence/resolver.js";
-import { buildRetrieveTargets } from "../supplement/retrieve-targets.js";
+import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
+import { buildRetrieveTargets } from "../retrieval/targets.js";
 import { SearchParameters, type SearchParams } from "./parameters.js";
 
 /**
  * Canonical agent-callable semantic search tool — `musubi_search`.
  *
  * Hybrid + rerank retrieval across every plane the calling presence can
- * read. The deep-path companion to the passive memory supplement: the
- * agent invokes this when the supplement missed the load-bearing thing,
- * or when the agent needs artifact-level grounding.
+ * read. This is the native first-class recall path; the agent invokes it when
+ * prior continuity may matter or when artifact-level grounding is needed.
  *
  * This file holds the body. `recall.ts` re-exports the same body wrapped
  * with a deprecation log under the legacy `musubi_recall` name for
@@ -55,7 +54,10 @@ type MusubiRetrieveRow = {
 
 type MusubiRetrieveResponse = {
   readonly results: readonly MusubiRetrieveRow[];
+  readonly warnings?: readonly unknown[];
 };
+
+const RECALL_STATES = ["provisional", "matured", "promoted"] as const;
 
 /**
  * Backing implementation. Exported so the deprecation alias in
@@ -68,7 +70,7 @@ export async function executeSearch(
 ): Promise<ToolResult> {
   const { client, config, agentId } = options;
 
-  let presence;
+  let presence: PresenceContext;
   try {
     presence = resolvePresence(config, { agentId });
   } catch (err) {
@@ -89,6 +91,7 @@ export async function executeSearch(
           query_text: params.query,
           mode: "deep",
           limit,
+          state_filter: [...RECALL_STATES],
         },
         token: presence.token,
       }),
@@ -96,15 +99,22 @@ export async function executeSearch(
   );
   if (settled.every((r) => r.status === "rejected")) {
     const firstErr =
-      settled[0]!.status === "rejected"
+      settled[0]?.status === "rejected"
         ? (settled[0] as PromiseRejectedResult).reason
         : new Error("unknown");
     return toolError(`Musubi search failed: ${errorMessage(firstErr)}`);
   }
   const seen = new Set<string>();
   const merged: MusubiRetrieveRow[] = [];
+  const warnings: string[] = [];
   for (const result of settled) {
-    if (result.status !== "fulfilled") continue;
+    if (result.status !== "fulfilled") {
+      warnings.push(`one retrieval target failed: ${errorMessage(result.reason)}`);
+      continue;
+    }
+    for (const warning of result.value.warnings ?? []) {
+      warnings.push(`Musubi warning: ${formatWarning(warning)}`);
+    }
     for (const row of result.value.results ?? []) {
       if (seen.has(row.object_id)) continue;
       seen.add(row.object_id);
@@ -114,9 +124,13 @@ export async function executeSearch(
   merged.sort((a, b) => b.score - a.score);
   const results = merged.slice(0, limit);
   if (results.length === 0) {
-    return toolText(`No Musubi results for "${params.query}".`);
+    const status =
+      warnings.length > 0
+        ? "No results were returned; retrieval was degraded."
+        : `No Musubi results for "${params.query}".`;
+    return toolText(appendWarnings(status, warnings));
   }
-  return toolText(formatResults(results));
+  return toolText(appendWarnings(formatResults(results), warnings));
 }
 
 export function createSearchTool(options: CreateSearchToolOptions): SearchTool {
@@ -125,7 +139,7 @@ export function createSearchTool(options: CreateSearchToolOptions): SearchTool {
     definition: {
       name: "musubi_search",
       description:
-        "Search Musubi across every plane (curated knowledge, synthesized concepts, episodic memory, source artifacts) using the full hybrid + rerank pipeline. Use when the passive memory supplement didn't surface what you need.",
+        "Search the active Musubi memory provider across every readable plane (curated knowledge, synthesized concepts, episodic memory, source artifacts) using hybrid retrieval and reranking.",
       parameters: SearchParameters,
       async execute(_toolCallId, params) {
         return executeSearch(options, params);
@@ -159,4 +173,18 @@ function errorMessage(err: unknown): string {
   if (err instanceof MusubiError) return `${err.name}: ${err.message}`;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function formatWarning(warning: unknown): string {
+  if (typeof warning === "string") return warning;
+  try {
+    return JSON.stringify(warning);
+  } catch {
+    return String(warning);
+  }
+}
+
+function appendWarnings(text: string, warnings: readonly string[]): string {
+  if (warnings.length === 0) return text;
+  return `${text}\n\nRetrieval warnings:\n${warnings.map((warning) => `- ${warning}`).join("\n")}`;
 }

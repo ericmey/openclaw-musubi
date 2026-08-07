@@ -1,135 +1,79 @@
-# Presence Model
+# Presence model
 
-Musubi is **presence-scoped** end-to-end. Every memory, every thought,
-every retrieval query is tagged with the presence that produced or
-requested it. Presences are strings shaped `<owner>/<presence-id>` — for
-example, `eric/openclaw`, `eric/aoi`, `eric/claude-code`.
+> Current-state document. Re-run `npm test` and inspect `src/presence/resolver.ts`
+> before changing deployment identity or token routing.
 
-This document describes how OpenClaw agents map to Musubi presences and how
-bearer tokens are scoped for that mapping.
+Musubi operations are presence-scoped. Presences use
+`<owner>/<presence-id>`—for example `vesper/hw-7ds`—and child plane namespaces
+are derived from that identity.
 
-## Mapping OpenClaw agents to Musubi presences
+## Shared presence
 
-An OpenClaw installation may run many agents, each with distinct identity
-and context. The plugin lets operators choose between two mapping styles.
-
-### Shared-presence mode
-
-One Musubi presence represents the entire OpenClaw install:
+One presence and one token may represent an entire OpenClaw installation:
 
 ```json
 {
-  "presence": { "defaultId": "eric/openclaw" }
-}
-```
-
-Every capture, supplement query, and thought uses that single presence.
-Good for small setups with one or two agents and when cross-agent thought
-routing is not required.
-
-### Per-agent mode
-
-Each OpenClaw agent maps to its own Musubi presence:
-
-```json
-{
-  "presence": {
-    "defaultId": "eric/openclaw",
-    "perAgent": {
-      "aoi": "eric/aoi",
-      "rin": "eric/rin",
-      "yua": "eric/yua"
-    }
-  }
-}
-```
-
-When the plugin acts on behalf of an agent, it consults `perAgent[agentId]`
-first, then falls back to `defaultId`. An agent missing from the map is not
-an error — it uses the default.
-
-Per-agent mode unlocks real presence-to-presence thoughts ("Aoi, tell Rin
-to pick up the deploy") and per-agent namespaces in Musubi
-(`eric/aoi/episodic` vs `eric/rin/episodic`).
-
-## Token scoping
-
-Musubi bearer tokens carry:
-
-- A **presence** identity the token represents.
-- A list of **scopes** — namespace read/write permissions and thought-check
-  permissions.
-
-### Shared-presence token
-
-One token suffices. Scopes must cover:
-
-- Read and write for the episodic namespace: `eric/openclaw/episodic`.
-- Read for retrieval across planes the supplement queries: typically
-  `eric/openclaw/curated`, `eric/openclaw/concept`, and any shared
-  namespaces (`eric/_shared/curated`, `eric/_shared/concept`).
-- `thoughts:check:openclaw` for the SSE subscription.
-- `thoughts:send:*` if the plugin should relay outbound thoughts.
-
-### Per-agent tokens
-
-In per-agent mode, **each agent gets its own token**. This is not optional —
-it is how Musubi enforces that `eric/aoi` cannot read `eric/rin`'s episodic
-stream by accident or by a confused tool call.
-
-Configuration for per-agent tokens will be added in a follow-up slice. The
-near-term plan is a `perAgent` structure analogous to the presence map:
-
-```json
-{
-  "presence": {
-    "defaultId": "eric/openclaw",
-    "perAgent": { "aoi": "eric/aoi" }
-  },
   "core": {
     "baseUrl": "https://musubi.example.internal",
-    "token": "${MUSUBI_TOKEN}",
+    "token": { "source": "exec", "provider": "onepassword", "id": "musubi-default" }
+  },
+  "presence": { "defaultId": "owner/openclaw" }
+}
+```
+
+This is appropriate only when all agents are intentionally allowed to share
+one memory identity.
+
+## Per-agent presence
+
+Each OpenClaw agent may map to a distinct Musubi presence and SecretRef:
+
+```json
+{
+  "core": {
+    "baseUrl": "https://musubi.example.internal",
+    "token": { "source": "exec", "provider": "onepassword", "id": "musubi-default" },
     "perAgentTokens": {
-      "aoi": "${MUSUBI_TOKEN_AOI}"
+      "vesper": { "source": "exec", "provider": "onepassword", "id": "musubi-vesper" }
     }
+  },
+  "presence": {
+    "defaultId": "owner/openclaw",
+    "perAgent": { "vesper": "vesper/hw-7ds" }
   }
 }
 ```
 
-When `perAgentTokens[agentId]` exists, it is used. Otherwise `core.token`
-is used — which should have broader scope for shared-presence mode, or be
-absent in strict per-agent deployments.
+OpenClaw materializes the SecretRefs declared by the plugin manifest. Literal
+`${...}` placeholders are invalid and registration refuses them.
+
+For every operation the resolver chooses `presence.perAgent[agentId]` and
+`core.perAgentTokens[agentId]` together. Completed-turn delivery uses strict
+mode: if an agent has a presence mapping but no dedicated token, capture fails
+loud rather than borrowing the default token.
 
 ## Namespace conventions
 
-Musubi namespaces are hierarchical. A healthy deployment looks like:
+For `vesper/hw-7ds`, the provider derives:
 
-```
-eric/                         — owner
-├─ openclaw/                  — the OpenClaw install as a presence
-│  ├─ episodic                — captures from OpenClaw agents (shared mode)
-│  ├─ curated                 — OpenClaw-authored curated notes (rare)
-│  └─ artifact                — large saved pages, attachments
-├─ aoi/                       — a specific agent
-│  ├─ episodic
-│  └─ curated
-├─ rin/
-│  └─ episodic
-└─ _shared/
-   ├─ curated                 — team/household knowledge
-   ├─ concept                 — synthesized concepts (written by Musubi)
-   └─ blended                 — a retrieval-time alias spanning the above
+```text
+vesper/hw-7ds/episodic  completed turns and explicit memories
+vesper/hw-7ds/thought   outbound thought namespace
+vesper/hw-7ds/artifact  exact artifact scope
+vesper/_shared/curated  shared curated read scope
+vesper/_shared/concept  shared concept read scope
 ```
 
-The plugin does not invent namespaces; operators configure them. Defaults
-write episodic under the mapped presence's namespace and read curated from
-the presence's own namespace plus `<owner>/_shared/curated` and
-`<owner>/_shared/concept`.
+Semantic retrieval uses the owner wildcard (`vesper/*`) and relies on the
+token's server-enforced read scope. The plugin does not infer authorization
+from the configured string.
 
-## Presence registration
+## Scope requirements
 
-Musubi v2 does not require explicit presence registration — presences are
-implicit in the tokens and namespaces in use. If a future slice surfaces a
-"who is online right now" concept, the plugin will register the configured
-presence(s) on load and deregister on shutdown. Today, appearing in an
-`/episodic` capture or a `/thoughts/check` call is enough to count.
+Each agent token needs write access to its child episodic namespace and read
+access to the planes intended for recall. Outbound thought use additionally
+needs the relevant thought-send scope. The Musubi server is authoritative:
+`401` and `403` become visible, non-retryable failures.
+
+The plugin neither registers presences nor claims online status. Presence is an
+identity and authorization boundary, not a liveness record.

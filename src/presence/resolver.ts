@@ -94,7 +94,14 @@ export function resolvePresence(
     );
   }
 
-  const owner = resolvedPresence.split("/", 1)[0]!;
+  const owner = resolvedPresence.split("/", 1)[0];
+  if (!owner) {
+    throw new PresenceResolutionError(
+      `Invalid presence "${resolvedPresence}": owner is empty`,
+      "invalid-presence",
+      agentId,
+    );
+  }
 
   return {
     presence: resolvedPresence,
