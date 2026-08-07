@@ -7,9 +7,10 @@ import {
   initializeGlobalHookRunner,
   resetGlobalHookRunner,
 } from "openclaw/plugin-sdk/plugin-runtime";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OpenClawPluginApi } from "../../src/api.js";
+import { getProcessCaptureDiagnostics } from "../../src/capture/diagnostics.js";
 import { registerMusubi } from "../../src/plugin/bootstrap.js";
 
 type AgentEndHandler = (event: unknown, ctx: { agentId?: string }) => Promise<void>;
@@ -19,6 +20,10 @@ type Service = {
 };
 
 const roots: string[] = [];
+
+beforeEach(() => {
+  getProcessCaptureDiagnostics().reset();
+});
 
 afterEach(() => {
   resetGlobalHookRunner();
@@ -179,6 +184,77 @@ describe("passive capture diagnostics", () => {
       });
     } finally {
       await service.stop();
+    }
+  });
+
+  it("routes a per-run hook instance through the process delivery authority", async () => {
+    const primary = makeApi();
+    const perRun = makeApi();
+    const primaryRegistration = registerMusubi({ api: primary.api, rawConfig: config() });
+    const perRunRegistration = registerMusubi({ api: perRun.api, rawConfig: config() });
+    expect(perRunRegistration.captureDiagnostics).toBe(primaryRegistration.captureDiagnostics);
+    const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-shared-delivery-"));
+    roots.push(stateDir);
+    await primary.getService().start({ stateDir });
+
+    try {
+      await perRun.getHandler()(
+        {
+          runId: "per-run-1",
+          messages: [
+            { role: "user", content: "synthetic question" },
+            { role: "assistant", content: "synthetic answer" },
+          ],
+        },
+        { agentId: "aoi" },
+      );
+
+      expect(perRunRegistration.captureDiagnostics.snapshot()).toMatchObject({
+        observed: 1,
+        translated: 1,
+        enqueued: 1,
+        enqueueFailed: 0,
+      });
+      expect(primaryRegistration.delivery.status()).toMatchObject({ running: true, pending: 1 });
+    } finally {
+      await primary.getService().stop();
+    }
+  });
+
+  it("does not let a superseded service stop tear down the current authority", async () => {
+    const first = makeApi();
+    const second = makeApi();
+    const perRun = makeApi();
+    registerMusubi({ api: first.api, rawConfig: config() });
+    const secondRegistration = registerMusubi({ api: second.api, rawConfig: config() });
+    const perRunRegistration = registerMusubi({ api: perRun.api, rawConfig: config() });
+    const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-replaced-delivery-"));
+    roots.push(stateDir);
+    await first.getService().start({ stateDir });
+    await second.getService().start({ stateDir });
+    await first.getService().stop();
+
+    try {
+      await perRun.getHandler()(
+        {
+          runId: "per-run-after-replace",
+          messages: [
+            { role: "user", content: "synthetic question" },
+            { role: "assistant", content: "synthetic answer" },
+          ],
+        },
+        { agentId: "aoi" },
+      );
+
+      expect(perRunRegistration.captureDiagnostics.snapshot()).toMatchObject({
+        observed: 1,
+        translated: 1,
+        enqueued: 1,
+        enqueueFailed: 0,
+      });
+      expect(secondRegistration.delivery.status()).toMatchObject({ running: true, pending: 1 });
+    } finally {
+      await second.getService().stop();
     }
   });
 });

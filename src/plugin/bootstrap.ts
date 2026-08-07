@@ -6,9 +6,10 @@ import { Value } from "@sinclair/typebox/value";
 
 import { getGlobalPluginRegistry, type OpenClawPluginApi } from "../api.js";
 import {
-  CaptureDiagnostics,
+  type CaptureDiagnostics,
   type CaptureDiagnosticsSnapshot,
   type CaptureSkipReason,
+  getProcessCaptureDiagnostics,
 } from "../capture/diagnostics.js";
 import type { CaptureEvent } from "../capture/translate.js";
 import { type MusubiConfig, MusubiConfigSchema } from "../config.js";
@@ -66,7 +67,7 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
     fetch: options.fetch,
   });
   const delivery = new DeliveryController({ client, config, logger: api.logger });
-  const captureDiagnostics = new CaptureDiagnostics();
+  const captureDiagnostics = getProcessCaptureDiagnostics();
 
   api.registerMemoryCapability({
     // Musubi captures every completed turn durably at agent_end, so it does not
@@ -110,7 +111,8 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
   api.registerService({
     id: "musubi-memory",
     start: async (ctx) => {
-      delivery.start(join(ctx.stateDir, "musubi", "delivery-outbox.sqlite"));
+      await delivery.start(join(ctx.stateDir, "musubi", "delivery-outbox.sqlite"));
+      captureDiagnostics.reset();
       api.logger.info(
         `musubi first-class memory provider started (base_url=${config.core.baseUrl})`,
       );

@@ -23,6 +23,21 @@ export type DeliveryControllerStatus = OutboxHealth & {
   readonly running: boolean;
 };
 
+type SharedDeliveryRuntime = {
+  readonly owner: symbol;
+  readonly path: string;
+  readonly config: MusubiConfig;
+  readonly outbox: DeliveryOutbox;
+  readonly worker: DeliveryWorker;
+};
+
+type SharedDeliveryState = {
+  current: SharedDeliveryRuntime | undefined;
+  transition: Promise<void>;
+};
+
+const SHARED_DELIVERY_STATE = Symbol.for("openclaw-musubi.delivery-state.v1");
+
 /**
  * Owns the durable capture boundary. Hook and tool callers only return after
  * SQLite has committed and read back the queue row; network delivery remains
@@ -32,52 +47,69 @@ export class DeliveryController {
   readonly #client: MusubiClient;
   readonly #config: MusubiConfig;
   readonly #logger: DeliveryLogger;
-  #outbox: DeliveryOutbox | undefined;
-  #worker: DeliveryWorker | undefined;
+  readonly #createOutbox: (path: string) => DeliveryOutbox;
+  #serviceOwner: symbol | undefined;
 
   constructor(options: {
     client: MusubiClient;
     config: MusubiConfig;
     logger: DeliveryLogger;
+    createOutbox?: (path: string) => DeliveryOutbox;
   }) {
     this.#client = options.client;
     this.#config = options.config;
     this.#logger = options.logger;
+    this.#createOutbox = options.createOutbox ?? ((path) => new DeliveryOutbox(path));
   }
 
-  start(path: string): void {
-    if (this.#outbox || this.#worker) return;
-    const outbox = new DeliveryOutbox(path);
-    try {
+  async start(path: string): Promise<void> {
+    if (this.#serviceOwner) return;
+    const owner = Symbol("musubi-delivery-owner");
+    await withSharedDeliveryLock(async (state) => {
+      if (this.#serviceOwner) return;
+      const previous = state.current;
+      const outbox = this.#createOutbox(path);
       const worker = new DeliveryWorker({
         client: this.#client,
         config: this.#config,
         outbox,
         logger: this.#logger,
       });
-      this.#outbox = outbox;
-      this.#worker = worker;
-      worker.start();
-    } catch (error) {
-      this.#outbox = undefined;
-      this.#worker = undefined;
-      outbox.close();
-      throw error;
-    }
+      try {
+        if (previous) await previous.worker.stop();
+        worker.start();
+      } catch (error) {
+        previous?.worker.start();
+        outbox.close();
+        throw error;
+      }
+      state.current = { owner, path, config: this.#config, outbox, worker };
+      this.#serviceOwner = owner;
+      if (previous) {
+        try {
+          previous.outbox.close();
+        } catch (error) {
+          this.#logger.warn(`musubi: superseded outbox close failed — ${errorMessage(error)}`);
+        }
+      }
+    });
   }
 
   async stop(): Promise<void> {
-    const worker = this.#worker;
-    const outbox = this.#outbox;
-    this.#worker = undefined;
-    this.#outbox = undefined;
-    if (worker) await worker.stop();
-    outbox?.close();
+    const owner = this.#serviceOwner;
+    if (!owner) return;
+    await withSharedDeliveryLock(async (state) => {
+      this.#serviceOwner = undefined;
+      if (state.current?.owner !== owner) return;
+      const current = state.current;
+      state.current = undefined;
+      await closeRuntime(current);
+    });
   }
 
   enqueueCapture(event: CaptureEvent): DeliveryRow {
-    const outbox = this.#requireOutbox();
-    const presence = resolvePresence(this.#config, {
+    const { config, outbox, worker } = this.#requireRuntime();
+    const presence = resolvePresence(config, {
       agentId: event.agentId,
       strict: event.agentId !== undefined,
     });
@@ -93,7 +125,7 @@ export class DeliveryController {
       importance: canonical.importance,
       sourceRef: event.id,
     });
-    this.#worker?.kick();
+    worker.kick();
     return row;
   }
 
@@ -105,8 +137,8 @@ export class DeliveryController {
     readonly topics: readonly string[];
     readonly idempotencyKey: string;
   }): DeliveryRow {
-    const outbox = this.#requireOutbox();
-    const presence = resolvePresence(this.#config, {
+    const { config, outbox, worker } = this.#requireRuntime();
+    const presence = resolvePresence(config, {
       agentId: options.agentId,
       strict: options.agentId !== undefined,
     });
@@ -121,18 +153,25 @@ export class DeliveryController {
       importance: options.importance,
       sourceRef: options.toolCallId,
     });
-    this.#worker?.kick();
+    worker.kick();
     return row;
   }
 
-  awaitTerminal(rowId: number, timeoutMs?: number): Promise<DeliveryRow | undefined> {
-    const worker = this.#worker;
-    if (!worker) throw new Error("musubi: delivery service is not running");
-    return worker.awaitTerminal(rowId, timeoutMs);
+  async awaitTerminal(rowId: number, timeoutMs = 1500): Promise<DeliveryRow | undefined> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const current = this.#requireRuntime();
+      current.worker.kick();
+      const row = current.outbox.row(rowId);
+      if (!row || row.state === "verified" || row.state === "dead") return row;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    return this.#requireRuntime().outbox.row(rowId);
   }
 
   status(): DeliveryControllerStatus {
-    if (!this.#outbox) {
+    const current = sharedDeliveryState().current;
+    if (!current) {
       return {
         running: false,
         pending: 0,
@@ -143,17 +182,56 @@ export class DeliveryController {
         degraded: true,
       };
     }
-    return { running: true, ...this.#outbox.health() };
+    return { running: true, ...current.outbox.health() };
   }
 
-  #requireOutbox(): DeliveryOutbox {
-    if (!this.#outbox) {
+  #requireRuntime(): SharedDeliveryRuntime {
+    const current = sharedDeliveryState().current;
+    if (!current) {
       throw new Error("musubi: delivery service is not running; capture was not queued");
     }
-    return this.#outbox;
+    return current;
   }
+}
+
+function sharedDeliveryState(): SharedDeliveryState {
+  const root = globalThis as typeof globalThis & {
+    [key: symbol]: SharedDeliveryState | undefined;
+  };
+  let state = root[SHARED_DELIVERY_STATE];
+  if (!state) {
+    state = { current: undefined, transition: Promise.resolve() };
+    root[SHARED_DELIVERY_STATE] = state;
+  }
+  return state;
+}
+
+async function withSharedDeliveryLock(
+  operation: (state: SharedDeliveryState) => Promise<void>,
+): Promise<void> {
+  const state = sharedDeliveryState();
+  const previous = state.transition;
+  let release!: () => void;
+  state.transition = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    await operation(state);
+  } finally {
+    release();
+  }
+}
+
+async function closeRuntime(runtime: SharedDeliveryRuntime): Promise<void> {
+  await runtime.worker.stop();
+  runtime.outbox.close();
 }
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
