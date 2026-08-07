@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.1](https://github.com/ericmey/openclaw-musubi/compare/v2.0.0...v2.0.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* expose passive capture diagnostics ([97bd5ce](https://github.com/ericmey/openclaw-musubi/commit/97bd5ce0f2ae4660d5ec76c6bfdeecd11c9cadd4))
+
 ## [2.0.0](https://github.com/ericmey/openclaw-musubi/compare/v1.0.3...v2.0.0) (2026-08-07)
 
 
