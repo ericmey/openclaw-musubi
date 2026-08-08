@@ -68,6 +68,10 @@ const PLANE_PATH: Record<string, string> = {
 };
 
 type DatedRow = MusubiRetrieveRow & { readonly created_at?: string };
+type DateEnrichment = {
+  readonly rows: readonly DatedRow[];
+  readonly warnings: readonly string[];
+};
 
 /**
  * Attach each candidate's real source date.
@@ -88,24 +92,36 @@ async function withDates(
   rows: readonly MusubiRetrieveRow[],
   client: MusubiClient,
   token: string,
-): Promise<readonly DatedRow[]> {
-  return Promise.all(
+): Promise<DateEnrichment> {
+  const enriched = await Promise.all(
     rows.map(async (row) => {
       const base = PLANE_PATH[row.plane];
-      if (!base) return row;
+      if (!base) {
+        return {
+          row,
+          warning: `date metadata unavailable for unsupported plane ${row.plane} (${row.namespace}/${row.object_id})`,
+        };
+      }
       try {
-        const full = await client.get<{ created_at?: string; event_at?: string }>(
+        const full = await client.getWithQuery<{ created_at?: string; event_at?: string }>(
           `${base}/${encodeURIComponent(row.object_id)}`,
+          { namespace: row.namespace },
           { token },
         );
-        return { ...row, created_at: full.event_at ?? full.created_at };
-      } catch {
-        return row;
+        return { row: { ...row, created_at: full.event_at ?? full.created_at } };
+      } catch (err) {
+        return {
+          row,
+          warning: `date metadata unavailable for ${row.plane} ${row.namespace}/${row.object_id}: ${errorMessage(err)}`,
+        };
       }
     }),
   );
+  return {
+    rows: enriched.map((entry) => entry.row),
+    warnings: enriched.flatMap((entry) => (entry.warning ? [entry.warning] : [])),
+  };
 }
-
 
 type MusubiRetrieveRow = {
   readonly object_id: string;
@@ -211,7 +227,7 @@ export async function executeSearch(
     );
   }
   const dated = await withDates(results, client, presence.token);
-  return toolText(appendWarnings(formatResults(dated), warnings));
+  return toolText(appendWarnings(formatResults(dated.rows), [...warnings, ...dated.warnings]));
 }
 
 export function createSearchTool(options: CreateSearchToolOptions): SearchTool {

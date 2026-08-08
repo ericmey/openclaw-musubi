@@ -162,13 +162,18 @@ describe("recall contract — dates and the weak-match floor", () => {
     const text = out.content[0]!.text;
 
     expect(text).toContain("2026-07-23");
-    expect(calls[1]?.url).toBe("https://musubi.test/v1/episodic/obj1");
+    expect(calls[1]?.url).toBe(
+      "https://musubi.test/v1/episodic/obj1?namespace=mizuki%2Fhw-7ds%2Fepisodic",
+    );
   });
 
   it("prefers event_at over created_at when both are present", async () => {
     const { fetch } = createMockFetch([
       { status: 200, body: { results: [row(0.81)] } },
-      { status: 200, body: { created_at: "2026-08-07T00:00:00Z", event_at: "2026-07-23T00:00:00Z" } },
+      {
+        status: 200,
+        body: { created_at: "2026-08-07T00:00:00Z", event_at: "2026-07-23T00:00:00Z" },
+      },
     ]);
     const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
     const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
@@ -185,6 +190,8 @@ describe("recall contract — dates and the weak-match floor", () => {
     const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
     expect(text).toContain("date unavailable");
     expect(text).toContain("some remembered content");
+    expect(text).toContain("Retrieval warnings:");
+    expect(text).toContain("date metadata unavailable for episodic");
   });
 
   it("SUPPRESSES content below the floor — 0.59 is withheld", async () => {
@@ -213,9 +220,7 @@ describe("recall contract — dates and the weak-match floor", () => {
   });
 
   it("does not fetch dates at all when the floor suppresses the result", async () => {
-    const { fetch, calls } = createMockFetch([
-      { status: 200, body: { results: [row(0.31)] } },
-    ]);
+    const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [row(0.31)] } }]);
     const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
     await tool.definition.execute("c", { query: "q" });
     expect(calls).toHaveLength(1);
