@@ -43,6 +43,70 @@ export type SearchTool = {
 
 const DEFAULT_LIMIT = 10;
 
+/**
+ * Below this top score, candidate CONTENT is withheld entirely.
+ *
+ * Initial safety floor, not a tuned value. On 2026-08-07 a wrong-week query
+ * against Mizuki's namespace returned a flat plateau topping out at 0.54; the
+ * model read that resemblance as evidence an event occurred and invented
+ * specifics around it. Substantive probes the same night scored 0.77-0.80, so
+ * 0.60 separates the measured bad case from the measured good ones.
+ *
+ * Deliberately asymmetric: a false miss is recoverable by rephrasing the
+ * question. Fabricated episodic certainty is not -- it becomes something a
+ * person believes they lived. Calibrate on known-answer queries later; do not
+ * lower it on intuition.
+ */
+const STRONG_MATCH_MIN_SCORE = 0.6;
+
+/** Same per-plane paths get.ts uses; retrieval carries no date of its own. */
+const PLANE_PATH: Record<string, string> = {
+  curated: "/v1/curated",
+  concept: "/v1/concepts",
+  episodic: "/v1/episodic",
+  artifact: "/v1/artifacts",
+};
+
+type DatedRow = MusubiRetrieveRow & { readonly created_at?: string };
+
+/**
+ * Attach each candidate's real source date.
+ *
+ * `/v1/retrieve` returns object_id, namespace, plane, score, content, state,
+ * importance, score_kind, extra and title -- verified against the live API on
+ * 2026-08-07, not merely against our own type. There is no date on the wire and
+ * `extra` holds only lineage and score_components, so a date cannot be surfaced
+ * by typing an existing field; it has to be fetched.
+ *
+ * Why this matters: asked about one week and handed memories from another, the
+ * model had NO field that distinguished them. We required a judgement we never
+ * gave it the information to make. Enrichment is bounded by `limit` and each
+ * failure degrades to "date unavailable" -- never to a guess, and never to
+ * silently omitting the date, which is the state that caused this.
+ */
+async function withDates(
+  rows: readonly MusubiRetrieveRow[],
+  client: MusubiClient,
+  token: string,
+): Promise<readonly DatedRow[]> {
+  return Promise.all(
+    rows.map(async (row) => {
+      const base = PLANE_PATH[row.plane];
+      if (!base) return row;
+      try {
+        const full = await client.get<{ created_at?: string; event_at?: string }>(
+          `${base}/${encodeURIComponent(row.object_id)}`,
+          { token },
+        );
+        return { ...row, created_at: full.event_at ?? full.created_at };
+      } catch {
+        return row;
+      }
+    }),
+  );
+}
+
+
 type MusubiRetrieveRow = {
   readonly object_id: string;
   readonly score: number;
@@ -130,7 +194,24 @@ export async function executeSearch(
         : `No Musubi results for "${params.query}".`;
     return toolText(appendWarnings(status, warnings));
   }
-  return toolText(appendWarnings(formatResults(results), warnings));
+  const top = results[0]?.score ?? 0;
+  if (top < STRONG_MATCH_MIN_SCORE) {
+    // FAIL CLOSED. Withhold content, not just confidence. Showing weak
+    // candidates alongside a caveat still puts plausible text in front of the
+    // model, and that is precisely what got promoted into a claimed event.
+    return toolText(
+      appendWarnings(
+        `NO STRONG MATCH for "${params.query}" (top similarity ${top.toFixed(2)}, ` +
+          `floor ${STRONG_MATCH_MIN_SCORE.toFixed(2)}). ${results.length} weak ` +
+          `candidate(s) were withheld: they are nearest neighbours, not evidence ` +
+          `that any specific event occurred. Say you do not remember, or ask for ` +
+          `a more specific detail and search again.`,
+        warnings,
+      ),
+    );
+  }
+  const dated = await withDates(results, client, presence.token);
+  return toolText(appendWarnings(formatResults(dated), warnings));
 }
 
 export function createSearchTool(options: CreateSearchToolOptions): SearchTool {
@@ -148,13 +229,14 @@ export function createSearchTool(options: CreateSearchToolOptions): SearchTool {
   };
 }
 
-function formatResults(rows: readonly MusubiRetrieveRow[]): string {
+function formatResults(rows: readonly DatedRow[]): string {
   const lines: string[] = [];
   lines.push(`Musubi returned ${rows.length} result(s):`);
   lines.push("");
   for (const row of rows) {
     const label = row.title ? `${row.title}` : `${row.namespace}/${row.object_id}`;
-    lines.push(`[${row.plane}] (score ${row.score.toFixed(2)}) ${label}`);
+    const when = row.created_at ? row.created_at.slice(0, 10) : "date unavailable";
+    lines.push(`[${row.plane}] (${when}) (score ${row.score.toFixed(2)}) ${label}`);
     lines.push(row.content);
     lines.push("");
   }

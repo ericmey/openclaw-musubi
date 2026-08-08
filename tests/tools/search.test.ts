@@ -139,3 +139,85 @@ describe("createSearchTool — canonical musubi_search", () => {
     expect(result.content[0]?.text).not.toContain('No Musubi results for "missing"');
   });
 });
+
+describe("recall contract — dates and the weak-match floor", () => {
+  const row = (score: number, id = "obj1") => ({
+    object_id: id,
+    score,
+    plane: "episodic",
+    content: "some remembered content",
+    namespace: "mizuki/hw-7ds/episodic",
+  });
+
+  it("renders each result's REAL source date, fetched per candidate", async () => {
+    // /v1/retrieve carries no date (verified against the live API 2026-08-07),
+    // so the date must be fetched. THIS is the field whose absence let a
+    // wrong-week memory look like an answer.
+    const { fetch, calls } = createMockFetch([
+      { status: 200, body: { results: [row(0.81)] } },
+      { status: 200, body: { object_id: "obj1", created_at: "2026-07-23T21:24:56Z" } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const out = await tool.definition.execute("c", { query: "what did we decide" });
+    const text = out.content[0]!.text;
+
+    expect(text).toContain("2026-07-23");
+    expect(calls[1]?.url).toBe("https://musubi.test/v1/episodic/obj1");
+  });
+
+  it("prefers event_at over created_at when both are present", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { results: [row(0.81)] } },
+      { status: 200, body: { created_at: "2026-08-07T00:00:00Z", event_at: "2026-07-23T00:00:00Z" } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
+    expect(text).toContain("2026-07-23");
+    expect(text).not.toContain("2026-08-07");
+  });
+
+  it("degrades honestly when the date fetch fails — never guesses, never omits", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { results: [row(0.81)] } },
+      { throw: new Error("metadata fetch failed") },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
+    expect(text).toContain("date unavailable");
+    expect(text).toContain("some remembered content");
+  });
+
+  it("SUPPRESSES content below the floor — 0.59 is withheld", async () => {
+    // Tonight's measured wrong-week plateau topped out at 0.54.
+    const { fetch } = createMockFetch([
+      { status: 200, body: { results: [row(0.59), row(0.5, "obj2")] } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const text = (await tool.definition.execute("c", { query: "yesterday" })).content[0]!.text;
+
+    expect(text).toContain("NO STRONG MATCH");
+    expect(text).toContain("0.59");
+    expect(text).not.toContain("some remembered content");
+  });
+
+  it("renders at exactly the floor — 0.60 is shown", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { results: [row(0.6)] } },
+      { status: 200, body: { created_at: "2026-07-25T10:00:00Z" } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
+    expect(text).not.toContain("NO STRONG MATCH");
+    expect(text).toContain("some remembered content");
+    expect(text).toContain("2026-07-25");
+  });
+
+  it("does not fetch dates at all when the floor suppresses the result", async () => {
+    const { fetch, calls } = createMockFetch([
+      { status: 200, body: { results: [row(0.31)] } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    await tool.definition.execute("c", { query: "q" });
+    expect(calls).toHaveLength(1);
+  });
+});
