@@ -237,7 +237,7 @@ function buildMemoryPrompt(availableTools: Set<string>): string[] {
   const store = availableTools.has("memory_store") ? "memory_store" : "musubi_remember";
   return [
     "## Musubi memory",
-    `Use ${search} when prior events, decisions, preferences, or relationships may matter. Use ${get} for exact-object grounding and ${store} for deliberate durable memory. A store result is truthful about queued versus verified delivery; do not describe queued data as stored.`,
+    `Use ${search} when prior events, decisions, preferences, or relationships may matter. Search results are semantically related candidates, not proof that a specific event happened. Before making an episodic claim, require the returned evidence to directly support who, what, and when; use ${get} for exact-object grounding when needed. If no result directly supports the requested event, or the result lacks the metadata needed to distinguish it, say you do not remember or could not find it. Never invent or infer specifics absent from the retrieved objects. Use ${store} for deliberate durable memory. A store result is truthful about queued versus verified delivery; do not describe queued data as stored.`,
   ];
 }
 

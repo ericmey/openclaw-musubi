@@ -121,11 +121,17 @@ describe("registerMusubi", () => {
     const capability = registration?.value as {
       promptBuilder: (params: { availableTools: Set<string> }) => string[];
     };
-    expect(
-      capability.promptBuilder({
+    const prompt = capability
+      .promptBuilder({
         availableTools: new Set(["memory_search", "memory_get", "memory_store"]),
-      }),
-    ).toEqual(["## Musubi memory", expect.stringContaining("memory_search")]);
+      })
+      .join("\n");
+    expect(prompt).toContain("memory_search");
+    expect(prompt).toContain("memory_get");
+    expect(prompt).toContain("semantically related candidates, not proof");
+    expect(prompt).toContain("who, what, and when");
+    expect(prompt).toContain("say you do not remember");
+    expect(prompt).toContain("Never invent or infer specifics");
   });
 
   it("warns when accepted migration-only config is present", () => {
