@@ -46,16 +46,18 @@ const DEFAULT_LIMIT = 10;
 /**
  * Below this top score, candidate CONTENT is withheld entirely.
  *
- * Initial safety floor, not a tuned value. On 2026-08-07 a wrong-week query
- * against Mizuki's namespace returned a flat plateau topping out at 0.54; the
- * model read that resemblance as evidence an event occurred and invented
- * specifics around it. Substantive probes the same night scored 0.77-0.80, so
- * 0.60 separates the measured bad case from the measured good ones.
+ * Initial safety floor, not a tuned value. On 2026-08-07 a failed recall query
+ * against Mizuki's namespace returned a flat plateau topping out at 0.54; later
+ * corpus inspection showed that plateau was dominated by duplicate OpenClaw
+ * heartbeat probes, not wrong-week human memories. The incident proves that
+ * weak machine-noise candidates must be withheld, but it does NOT calibrate
+ * relevance for clean human memories. Keep 0.60 as a conservative provisional
+ * floor until known-answer queries against the cleaned corpus measure both
+ * genuine matches and genuine near-misses.
  *
  * Deliberately asymmetric: a false miss is recoverable by rephrasing the
  * question. Fabricated episodic certainty is not -- it becomes something a
- * person believes they lived. Calibrate on known-answer queries later; do not
- * lower it on intuition.
+ * person believes they lived. Do not lower it on intuition.
  */
 const STRONG_MATCH_MIN_SCORE = 0.6;
 

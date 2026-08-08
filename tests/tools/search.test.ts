@@ -195,7 +195,8 @@ describe("recall contract — dates and the weak-match floor", () => {
   });
 
   it("SUPPRESSES content below the floor — 0.59 is withheld", async () => {
-    // Tonight's measured wrong-week plateau topped out at 0.54.
+    // The provisional floor is intentionally conservative; clean-corpus
+    // known-answer calibration remains pending.
     const { fetch } = createMockFetch([
       { status: 200, body: { results: [row(0.59), row(0.5, "obj2")] } },
     ]);
