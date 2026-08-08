@@ -110,7 +110,11 @@ async function withDates(
           { namespace: row.namespace },
           { token },
         );
-        return { row: { ...row, created_at: full.event_at ?? full.created_at } };
+        // `created_at` is the lived/source chronology. Historical imports keep
+        // that original timestamp while `event_at` records the later ingestion
+        // lifecycle event. Prefer the source date so an old memory does not
+        // present itself as something that happened during tonight's import.
+        return { row: { ...row, created_at: full.created_at ?? full.event_at } };
       } catch (err) {
         return {
           row,

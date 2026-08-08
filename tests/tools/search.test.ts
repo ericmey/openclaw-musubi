@@ -167,18 +167,28 @@ describe("recall contract — dates and the weak-match floor", () => {
     );
   });
 
-  it("prefers event_at over created_at when both are present", async () => {
+  it("prefers source created_at over ingestion event_at when both are present", async () => {
     const { fetch } = createMockFetch([
       { status: 200, body: { results: [row(0.81)] } },
       {
         status: 200,
-        body: { created_at: "2026-08-07T00:00:00Z", event_at: "2026-07-23T00:00:00Z" },
+        body: { created_at: "2026-07-23T00:00:00Z", event_at: "2026-08-07T00:00:00Z" },
       },
     ]);
     const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
     const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
     expect(text).toContain("2026-07-23");
     expect(text).not.toContain("2026-08-07");
+  });
+
+  it("falls back to event_at when source created_at is unavailable", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { results: [row(0.81)] } },
+      { status: 200, body: { event_at: "2026-07-23T00:00:00Z" } },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const text = (await tool.definition.execute("c", { query: "q" })).content[0]!.text;
+    expect(text).toContain("2026-07-23");
   });
 
   it("degrades honestly when the date fetch fails — never guesses, never omits", async () => {
