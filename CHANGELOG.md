@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.5](https://github.com/ericmey/openclaw-musubi/compare/v2.0.4...v2.0.5) (2026-08-12)
+
+
+### Bug Fixes
+
+* **memory:** stop wildcard-403 recall outages, dedup dead-letters, heartbeat noise ([#52](https://github.com/ericmey/openclaw-musubi/issues/52)) ([776a787](https://github.com/ericmey/openclaw-musubi/commit/776a7870c2b510360de1c2b513d20d5a8a48ff49))
+
 ## [2.0.4](https://github.com/ericmey/openclaw-musubi/compare/v2.0.3...v2.0.4) (2026-08-08)
 
 
