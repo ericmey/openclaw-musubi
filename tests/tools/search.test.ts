@@ -109,6 +109,94 @@ describe("createSearchTool — canonical musubi_search", () => {
     expect(text).toContain("Eric prefers TypeScript.");
   });
 
+  it("fails closed on a foreign-family row: not surfaced, not parsed, not logged", async () => {
+    // Credential-misbinding drill (ADR-0005). Config presence is
+    // `eric/openclaw` but the no-namespace response carries a
+    // `hana/...` row — exactly what a wrong perAgentTokens binding
+    // produces. The FIRST foreign row must fail the whole call:
+    //   1. not surfaced — the foreign content string appears nowhere
+    //      in the tool result;
+    //   2. not parsed — no per-row date-enrichment GET is issued
+    //      (the retrieve POST is the only HTTP call);
+    //   3. not logged — nothing the tool can log carries the content
+    //      (the error text itself is checked as the loggable surface).
+    const FOREIGN_SECRET = "hana's private memory that must never surface";
+    const { fetch, calls } = createMockFetch([
+      {
+        status: 200,
+        body: {
+          results: [
+            {
+              object_id: "ok-1",
+              score: 0.91,
+              plane: "episodic",
+              content: "a perfectly valid own-family row",
+              namespace: "eric/openclaw/episodic",
+            },
+            {
+              object_id: "leak-1",
+              score: 0.95,
+              plane: "episodic",
+              content: FOREIGN_SECRET,
+              namespace: "hana/hw-7ds/episodic",
+            },
+          ],
+        },
+      },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("call", { query: "anything" });
+
+    // Hard error naming the boundary and the foreign namespace…
+    expect(result.isError).toBe(true);
+    const text = result.content[0]!.text;
+    expect(text).toContain("identity boundary violation");
+    expect(text).toContain("hana/hw-7ds/episodic");
+    expect(text).toContain("perAgentTokens");
+    // 1. …with no foreign content anywhere in the surfaced output,
+    expect(text).not.toContain(FOREIGN_SECRET);
+    // …and NO PARTIAL SUCCESS: the valid own-family row is withheld too,
+    // so operators repair the binding instead of living with it.
+    expect(text).not.toContain("perfectly valid own-family row");
+    // 2. Not parsed: the retrieve POST is the only call — no per-row
+    // date-enrichment GETs ever fired for either row.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://musubi.test/v1/retrieve");
+    // 3. Not logged: the full loggable output of the tool (its entire
+    // content array) never contains the foreign content.
+    const everything = JSON.stringify(result);
+    expect(everything).not.toContain(FOREIGN_SECRET);
+  });
+
+  it("accepts cross-presence rows within the same identity family", async () => {
+    // The boundary is owner-level by design: `eric/_shared/curated`
+    // alongside `eric/openclaw/*` is the intended product of family
+    // discovery (P2's whole point), not a violation.
+    const { fetch } = createMockFetch([
+      {
+        status: 200,
+        body: {
+          results: [
+            {
+              object_id: "k-1",
+              score: 0.88,
+              plane: "curated",
+              content: "family-shared fact",
+              namespace: "eric/_shared/curated",
+            },
+          ],
+        },
+      },
+    ]);
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("call", { query: "fact" });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0]!.text).toContain("family-shared fact");
+  });
+
   it("surfaces backend error as a tool error string", async () => {
     const { fetch } = createMockFetch([{ throw: new TypeError("fetch failed") }]);
     const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
@@ -145,12 +233,15 @@ describe("createSearchTool — canonical musubi_search", () => {
 });
 
 describe("recall contract — dates and the weak-match floor", () => {
+  // Fixture identity matches makeConfig's presence (`eric/openclaw`):
+  // rows from a DIFFERENT identity family now trip the ADR-0005
+  // boundary before the date pipeline runs, which is its own test.
   const row = (score: number, id = "obj1") => ({
     object_id: id,
     score,
     plane: "episodic",
     content: "some remembered content",
-    namespace: "mizuki/hw-7ds/episodic",
+    namespace: "eric/openclaw/episodic",
   });
 
   it("renders each result's REAL source date, fetched per candidate", async () => {
@@ -167,7 +258,7 @@ describe("recall contract — dates and the weak-match floor", () => {
 
     expect(text).toContain("2026-07-23");
     expect(calls[1]?.url).toBe(
-      "https://musubi.test/v1/episodic/obj1?namespace=mizuki%2Fhw-7ds%2Fepisodic",
+      "https://musubi.test/v1/episodic/obj1?namespace=eric%2Fopenclaw%2Fepisodic",
     );
   });
 

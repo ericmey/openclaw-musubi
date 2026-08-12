@@ -346,8 +346,9 @@ export function translateAgentEndEventWithReason(
 
 /**
  * OpenClaw's heartbeat prompt as observed at the capture seam. Matched
- * when the user turn IS the poll marker (exactly, or the marker plus
- * trailing whitespace). Deliberately narrow: a human message that merely
+ * when the user turn IS the poll marker — optional surrounding
+ * whitespace only (`extractMessageText` trims before we compare, and we
+ * trim again here). Deliberately narrow: a human message that merely
  * mentions the marker mid-text still captures.
  */
 const HEARTBEAT_POLL_MARKER = "[OpenClaw heartbeat poll]";
