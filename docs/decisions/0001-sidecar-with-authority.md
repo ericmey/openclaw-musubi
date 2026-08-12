@@ -1,8 +1,13 @@
-# ADR-0001: Sidecar-with-authority memory integration
+# ADR-0001: Sidecar-with-authority memory integration (historical)
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0004](./0004-first-class-memory-provider.md)
 - **Date:** 2026-04-19
 - **Deciders:** @ericmey, Aoi (OpenClaw), Aoi (Musubi)
+
+> Historical record only. This decision does not describe the current plugin
+> or deployment. On 2026-08-07 Eric explicitly selected Musubi as OpenClaw's
+> first-class memory provider. Current-state claims live in ADR-0004 and must
+> be re-verified through the loader-backed test, not inferred from this page.
 
 ## Context
 

@@ -1,7 +1,7 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
-import { resolvePresence } from "../presence/resolver.js";
+import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import { RecentParameters, type RecentParams } from "./parameters.js";
 
 /**
@@ -19,7 +19,7 @@ import { RecentParameters, type RecentParams } from "./parameters.js";
  *      bypassing the query-required pipeline.
  *
  * Until both land, this fallback paginates `GET /v1/episodic` for the
- * presence's own namespace and sorts client-side by event timestamp.
+ * presence's own namespace and sorts client-side by source timestamp.
  * The fallback is documented in [[07-interfaces/agent-tools]] and
  * [[_slices/slice-openclaw-canonical-tools]] § Depends on.
  */
@@ -77,7 +77,7 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
         "Recent activity from the calling presence's episodic memory, newest-first. No query needed — ask 'what was I just doing?' and the agent gets the last N captures. Cross-modal scope is forthcoming; today, presence-only.",
       parameters: RecentParameters,
       async execute(_toolCallId, params) {
-        let presence;
+        let presence: PresenceContext;
         try {
           presence = resolvePresence(config, { agentId });
         } catch (err) {
@@ -120,8 +120,10 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
           });
         }
 
-        // Sort newest-first by event_at (preferred), then created_at,
-        // then created_epoch as last-resort fallback. The API page is
+        // Sort newest-first by source created_at, then event_at as a fallback,
+        // then ingested_at and created_epoch. Historical imports preserve lived
+        // chronology in created_at while event_at reflects later ingestion.
+        // The API page is
         // Qdrant-scroll-ordered (undefined), so client-side sort is
         // load-bearing for "recent" semantics.
         const sorted = [...rows].sort((a, b) => {
@@ -141,12 +143,12 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
 }
 
 function pickTimestampMs(row: EpisodicRow): number | undefined {
-  if (row.event_at) {
-    const ms = Date.parse(row.event_at);
-    if (Number.isFinite(ms)) return ms;
-  }
   if (row.created_at) {
     const ms = Date.parse(row.created_at);
+    if (Number.isFinite(ms)) return ms;
+  }
+  if (row.event_at) {
+    const ms = Date.parse(row.event_at);
     if (Number.isFinite(ms)) return ms;
   }
   if (row.ingested_at) {
@@ -164,7 +166,7 @@ function formatResults(namespace: string, rows: readonly EpisodicRow[]): string 
   lines.push(`Recent activity (${namespace}, last ${rows.length}):`);
   lines.push("");
   for (const row of rows) {
-    const ts = row.event_at ?? row.created_at ?? row.ingested_at ?? "(no timestamp)";
+    const ts = row.created_at ?? row.event_at ?? row.ingested_at ?? "(no timestamp)";
     const oid = row.object_id ?? "<no-id>";
     const content = (row.content ?? "").trim();
     lines.push(`[${ts}] ${namespace}/${oid}`);

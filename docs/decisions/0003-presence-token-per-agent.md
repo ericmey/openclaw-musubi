@@ -42,14 +42,17 @@ Configuration:
   },
   "core": {
     "baseUrl": "https://musubi.example.internal",
-    "token": "${MUSUBI_TOKEN}",
+    "token": { "source": "exec", "provider": "onepassword", "id": "musubi-default" },
     "perAgentTokens": {
-      "aoi": "${MUSUBI_TOKEN_AOI}",
-      "rin": "${MUSUBI_TOKEN_RIN}"
+      "aoi": { "source": "exec", "provider": "onepassword", "id": "musubi-aoi" },
+      "rin": { "source": "exec", "provider": "onepassword", "id": "musubi-rin" }
     }
   }
 }
 ```
+
+OpenClaw materializes these manifest-declared SecretRefs before registration.
+Literal `${...}` placeholders are rejected by the current provider.
 
 Resolution order on each operation:
 
@@ -57,9 +60,10 @@ Resolution order on each operation:
    exists, use it (with `perAgent[agentId]` as the presence).
 2. Otherwise, use `core.token` with `presence.defaultId`.
 
-A token's scope list is enforced server-side; the plugin will not attempt
-operations it knows are out-of-scope. It fails fast with a typed error
-naming the missing scope.
+A token's scope list is enforced server-side. The plugin does not parse token
+claims or predict authorization; an authoritative `401` or `403` becomes a
+typed, non-retryable failure with the affected delivery retained for operator
+inspection.
 
 ## Alternatives considered
 
@@ -81,8 +85,8 @@ Rejected as the only mode because:
 
 Tempting because it is the cleanest security posture. Rejected because:
 
-- Many real installs have a "system agent" or background tasks (capture
-  mirroring, health checks) that don't fit neatly into a per-agent
+- Many real installs have a "system agent" or background tasks (completed-turn
+  capture, health checks) that don't fit neatly into a per-agent
   identity.
 - Configuration becomes burdensome for trivial single-agent installs.
 - A graceful fallback to a default presence is the kind of pragmatic
@@ -119,7 +123,7 @@ Rejected for v1.0 because:
 - Upstream auth model: `src/musubi/auth/scopes.py` in the Musubi v2
   branch — defines `thoughts:check:<presence>` and namespace scope
   resolution.
-- ADR-0001 (sidecar-with-authority) — informs why the plugin is the
-  identity carrier rather than OpenClaw's native memory.
+- ADR-0004 (first-class memory provider) — makes the plugin the selected
+  identity and memory carrier. ADR-0001 is historical.
 - ADR-0002 (SSE) — token scope governs which thought streams this plugin
   can subscribe to.

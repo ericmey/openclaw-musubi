@@ -6,12 +6,12 @@ disagree, we update one or the other in the same PR.
 
 ## Start here
 
-- [Architecture overview](./architecture/overview.md) — what the plugin is,
-  what it does, and the sidecar-with-authority integration model.
+- [Architecture overview](./architecture/overview.md) — current first-class
+  provider topology, durability boundaries, and rerunnable proof.
 - [Presence model](./architecture/presence-model.md) — how OpenClaw agents
   map to Musubi presences, how tokens are scoped.
-- [Transport](./architecture/transport.md) — HTTP for request/response work,
-  Server-Sent Events for live thought delivery, reconnect and backoff rules.
+- [Transport](./architecture/transport.md) — active HTTP behavior and the
+  explicitly inactive historical SSE reference.
 
 ## Contracts
 

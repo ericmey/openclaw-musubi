@@ -1,7 +1,7 @@
 {
   "name": "openclaw-musubi",
-  "version": "1.0.3",
-  "description": "Musubi memory plane for OpenClaw agents — episodic capture, curated knowledge, and presence-to-presence thoughts with authority-weighted prompt supplements.",
+  "version": "2.0.4",
+  "description": "First-class durable Musubi memory provider for OpenClaw agents.",
   "type": "module",
   "license": "MIT",
   "author": "Eric Mey <ericmey@gmail.com>",
@@ -21,11 +21,11 @@
     "ai-agents",
     "plugin",
     "rag",
-    "sse",
-    "cross-modality"
+    "durable-memory",
+    "agent-memory"
   ],
   "engines": {
-    "node": ">=22.14.0"
+    "node": ">=22.22.3"
   },
   "files": [
     "dist",
@@ -36,25 +36,25 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p .",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p .",
     "typecheck": "tsc --noEmit -p .",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "test": "vitest run",
+    "test": "npm run build && vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build",
     "lint:fix": "biome check --write .",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "npm run build && vitest run --coverage"
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.49"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.5.4"
+    "openclaw": ">=2026.7.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "openclaw": "2026.5.4",
+    "openclaw": "2026.7.1",
     "typescript": "^5.5.0",
     "vitest": "^4.0.0",
     "@biomejs/biome": "^2.4.14",
@@ -72,13 +72,13 @@
     "install": {
       "npmSpec": "openclaw-musubi",
       "defaultChoice": "npm",
-      "minHostVersion": ">=2026.4.10"
+      "minHostVersion": ">=2026.7.1"
     },
     "compat": {
-      "pluginApi": ">=2026.5.4"
+      "pluginApi": ">=2026.7.1"
     },
     "build": {
-      "openclawVersion": "2026.5.4"
+      "openclawVersion": "2026.7.1"
     },
     "release": {
       "publishToClawHub": true,

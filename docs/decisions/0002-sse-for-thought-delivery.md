@@ -1,8 +1,13 @@
-# ADR-0002: Server-Sent Events for thought delivery
+# ADR-0002: Server-Sent Events for thought delivery (historical)
 
-- **Status:** Accepted
+- **Status:** Superseded for the OpenClaw provider runtime by ADR-0004
 - **Date:** 2026-04-19
 - **Deciders:** @ericmey, Aoi (OpenClaw), Aoi (Musubi)
+
+> Historical decision. The SSE client remains protocol research, but the
+> first-class provider does not register it because received events had no
+> verified path into OpenClaw context. Re-check `src/plugin/bootstrap.ts`;
+> there is deliberately no `createThoughtStream` registration.
 
 ## Context
 
@@ -131,5 +136,5 @@ Adopted because it:
   Thoughts → "Thoughts stream (SSE)" and "Consumer expectations".
 - Upstream PR: https://github.com/ericmey/musubi/pull/103
 - Upstream implementation issue: https://github.com/ericmey/musubi/issues/102
-- ADR-0001 (sidecar-with-authority) — the integration model this
-  transport choice serves.
+- ADR-0004 (first-class memory provider) — the current integration model this
+  transport choice serves. ADR-0001 is historical.

@@ -1,12 +1,14 @@
 # Transport
 
-The plugin talks to a Musubi core over two transports:
+The active first-class provider talks to a Musubi core over HTTP:
 
 - **HTTP** for request/response work — retrieval queries, episodic captures,
   curated reads, thought send/check/history, health probes.
-- **Server-Sent Events** for real-time inbound thought delivery.
+- **Server-Sent Events** were implemented by the historical provider but are
+  not shipped in the first-class release because there is no verified OpenClaw
+  context-delivery contract for received thoughts.
 
-Both share the same base URL and bearer token. A future gRPC streaming
+The clients share the same base URL and bearer token. A future gRPC streaming
 transport is anticipated upstream; when it lands, this plugin will add it
 behind the same configuration surface. Until then, everything below.
 
@@ -43,10 +45,16 @@ Network errors and `5xx` responses are retried with exponential backoff.
 
 Per-request timeout defaults to 30s, configurable via `core.requestTimeoutMs`.
 
-## SSE: `/v1/thoughts/stream`
+## Inactive SSE reference: `/v1/thoughts/stream`
 
-The plugin subscribes to `/v1/thoughts/stream` for each configured presence
-to receive inbound thoughts without polling.
+> Historical protocol reference, not current runtime state. Re-establish the
+> active behavior with `rg -n "createThoughtStream|onThought" src/plugin`.
+> The current provider registers no inbound stream.
+
+The removed historical client subscribed to `/v1/thoughts/stream`. The
+first-class provider ships no subscriber. This section preserves the protocol
+for a future integration that can prove how received thoughts enter OpenClaw
+context before it is admitted to the runtime.
 
 ### Request shape
 
@@ -106,8 +114,8 @@ Over-cap connections receive `503 Service Unavailable` with
 
 ## Consumer expectations (client contract)
 
-These are the contract every `/thoughts/stream` subscriber — this plugin,
-the LiveKit worker, and any future consumer — must honor. They mirror the
+These were the contract the historical plugin subscriber implemented and
+remain requirements for the LiveKit worker or any future consumer. They mirror the
 "Consumer expectations" section of the upstream canonical-api spec
 verbatim so behavior stays aligned across implementations.
 
@@ -138,8 +146,9 @@ verbatim so behavior stays aligned across implementations.
 ## Failure and degraded modes
 
 - **Musubi core unreachable at startup.** The client enters the reconnect
-  loop immediately. HTTP operations return typed errors to callers; the
-  memory supplement returns empty rather than failing the prompt build.
+  loop immediately. Read tools return typed errors; write operations remain
+  in the durable outbox and provider status reports degradation. Prompt
+  guidance remains synchronous and performs no remote I/O.
 - **Token expired or scope revoked.** `401`/`403` surface a user-visible
   status. SSE stays disconnected; HTTP operations fail fast with a typed
   error.

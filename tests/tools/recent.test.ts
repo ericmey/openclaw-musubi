@@ -98,6 +98,39 @@ describe("createRecentTool", () => {
     expect(newerPos).toBeLessThan(olderPos);
   });
 
+  it("uses source created_at instead of later ingestion event_at for ordering and display", async () => {
+    const { fetch } = createMockFetch([
+      {
+        status: 200,
+        body: {
+          items: [
+            {
+              object_id: "imported-old",
+              content: "older lived event imported tonight",
+              created_at: "2026-07-23T10:00:00Z",
+              event_at: "2026-08-07T23:00:00Z",
+            },
+            {
+              object_id: "lived-later",
+              content: "later lived event",
+              created_at: "2026-07-24T10:00:00Z",
+              event_at: "2026-07-24T10:01:00Z",
+            },
+          ],
+        },
+      },
+    ]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const text = (await tool.definition.execute("c", {})).content[0]!.text;
+
+    expect(text.indexOf("later lived event")).toBeLessThan(
+      text.indexOf("older lived event imported tonight"),
+    );
+    expect(text).toContain("[2026-07-23T10:00:00Z]");
+    expect(text).not.toContain("2026-08-07T23:00:00Z");
+  });
+
   it("filters rows by tag — every listed tag must be present", async () => {
     const { fetch } = createMockFetch([
       {
@@ -158,6 +191,31 @@ describe("createRecentTool", () => {
     const text = result.content[0]!.text;
     expect(text).toContain("after since");
     expect(text).not.toContain("before since");
+  });
+
+  it("applies since to source created_at, not a later ingestion event_at", async () => {
+    const { fetch } = createMockFetch([
+      {
+        status: 200,
+        body: {
+          items: [
+            {
+              object_id: "imported-old",
+              content: "old event imported after since",
+              created_at: "2026-07-23T10:00:00Z",
+              event_at: "2026-08-07T23:00:00Z",
+            },
+          ],
+        },
+      },
+    ]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const text = (await tool.definition.execute("c", { since: "2026-08-01T00:00:00Z" })).content[0]!
+      .text;
+
+    expect(text).toContain("No recent activity");
+    expect(text).not.toContain("old event imported after since");
   });
 
   it("rejects invalid `since` value with a clear tool error", async () => {

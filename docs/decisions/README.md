@@ -21,9 +21,10 @@ zero-padded. Start from [`template.md`](./template.md).
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](./0001-sidecar-with-authority.md) | Sidecar-with-authority memory integration | Accepted |
-| [0002](./0002-sse-for-thought-delivery.md) | Server-Sent Events for thought delivery | Accepted |
+| [0001](./0001-sidecar-with-authority.md) | Sidecar-with-authority memory integration | Superseded by 0004 |
+| [0002](./0002-sse-for-thought-delivery.md) | Server-Sent Events for thought delivery | Superseded for provider runtime by 0004 |
 | [0003](./0003-presence-token-per-agent.md) | Per-presence bearer tokens | Accepted |
+| [0004](./0004-first-class-memory-provider.md) | Musubi owns the OpenClaw memory slot | Accepted |
 
 ## When to write a new ADR
 

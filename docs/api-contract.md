@@ -1,195 +1,102 @@
-# API Consumer Contract
+# Active API consumer contract
 
-This document captures the **client-side behavior** any Musubi consumer
-must implement. It mirrors the "Consumer expectations" section of the
-upstream Musubi v2 canonical API spec
-(`docs/architecture/07-interfaces/canonical-api.md` §5 Thoughts →
-"Consumer expectations") so this plugin, the LiveKit worker, and any
-future Python homelab consumer all build to the same contract.
+> Current-state document. Re-establish the plugin claims with `npm test`,
+> `openclaw plugins inspect musubi --runtime --json`, and—on a running
+> provider—`openclaw musubi-doctor --agent <id>`.
 
-When the upstream spec and this file disagree, **the upstream spec wins**.
-Open a PR updating this file to match, and link the upstream change in the
-description.
+This page describes the HTTP behavior the first-class OpenClaw provider
+actually uses. The upstream Musubi canonical API remains authoritative for
+server endpoint semantics; this page owns the client boundary.
 
-## Source of truth
+## Authentication and identity
 
-- Locked in upstream Musubi PR
-  [#103](https://github.com/ericmey/musubi/pull/103).
-- Section: `docs/architecture/07-interfaces/canonical-api.md`, §5 Thoughts,
-  "Thoughts stream (SSE)" and "Consumer expectations".
+- Every request carries `Authorization: Bearer <materialized token>`.
+- `core.token` and `core.perAgentTokens.*` are declared OpenClaw
+  `secretInputs`; OpenClaw materializes structured SecretRefs before plugin
+  registration.
+- Any unresolved `${...}` string fails registration, including the hyphenated
+  placeholder shape that caused the 2026-08-07 incident.
+- Per-agent operations resolve both presence and token. A mapped agent without
+  a mapped token fails strict delivery rather than falling back across an
+  identity boundary.
 
-## HTTP
+The plugin does not parse token scopes locally or claim a request is authorized
+before Musubi answers. `401` and `403` are authoritative, non-retryable auth
+failures.
 
-### Base URL and versioning
+## Common HTTP behavior
 
-- All endpoints live at `<core.baseUrl>/v1/…`.
-- The plugin probes `GET /v1/ops/status` at load and logs the reported
-  Musubi version. Mismatches between the plugin's `peerDependencies`
-  range and the reported version surface as warnings, not errors.
+- Base URL: `core.baseUrl`, with canonical endpoints under `/v1`.
+- `X-Request-Id`: fresh for every HTTP call.
+- `Idempotency-Key`: stable for one logical POST and reused by retries.
+- Timeouts: `core.requestTimeoutMs`, defaulted by `src/config.ts`.
+- Retryable: network failures, `5xx`, and `429` after `Retry-After`.
+- Non-retryable: `401`, `403`, `404`, and other client errors.
 
-### Authentication
+## Durable completed-turn and explicit-store delivery
 
-- Every request includes `Authorization: Bearer <token>`.
-- Tokens are presence-scoped. The plugin does not attempt a request it
-  knows is out of the token's scope; it fails fast with a typed error and
-  logs the missing scope.
+The delivery boundary is local SQLite, not a successful network response:
 
-### Headers
+1. Resolve the calling agent's presence and token.
+2. Commit the canonical payload and stable idempotency identity to the outbox.
+3. Read the row back before the hook or tool reports it queued.
+4. Before replaying an attempted POST, search for the receipt tag. A degraded
+   receipt query defers delivery rather than risking a duplicate.
+5. `POST /v1/episodic` and persist the returned canonical `object_id`.
+6. `GET /v1/episodic/{id}?namespace=...` and compare object id, namespace, and
+   content SHA-256.
+7. Only then mark the row `verified` and prune plaintext from the outbox.
 
-| Header | Direction | Purpose |
-|---|---|---|
-| `Authorization` | → | Bearer token. |
-| `X-Request-Id` | → | Per-request correlation id. Echoed by server in logs. |
-| `Idempotency-Key` | → (writes only) | Fresh per logical operation; retries reuse the same key. |
-| `Retry-After` | ← | Honored on `429` and `503`. |
+`401`, `403`, invalid write envelopes, and readback identity mismatches become
+durable `dead` rows. Retryable failures remain pending with bounded backoff.
 
-### Error taxonomy
+## Retrieval
 
-Typed errors the client distinguishes:
+### Semantic search
 
-- **Network** — connection refused, DNS fail, read timeout. Retry with
-  backoff.
-- **Auth (`401`/`403`)** — token missing, invalid, expired, or out of
-  scope. No retry; surface to user.
-- **Rate limit (`429`)** — honor `Retry-After`, then retry.
-- **Server (`5xx`)** — retry with backoff up to a small cap, then fail.
-- **Client (`4xx` other)** — treat as programming error; log full detail;
-  do not retry.
+`memory_search` and `musubi_search` call `POST /v1/retrieve` with:
 
-### Retries
+- `mode: "deep"`;
+- the caller's query and requested planes;
+- `state_filter: ["provisional", "matured", "promoted"]`; and
+- the calling presence's token.
 
-- Network and `5xx`: exponential backoff `min(2^n * 500ms + rand(0,250ms),
-  8s)` for up to 5 attempts.
-- `429`: honor `Retry-After`.
-- Writes: always include `Idempotency-Key` so retries are safe.
+Server warnings and partial target failures are printed in the tool result. A
+degraded envelope is never rendered as an ordinary “no memory” answer.
 
-### Timeouts
+### Exact object read
 
-- Per-request default: 30 seconds.
-- Override: `core.requestTimeoutMs` in plugin config.
-- SSE connection has no request timeout; it has a **ping-gap timeout** of
-  60 seconds (see below).
+`memory_get` and `musubi_get` call the plane-specific canonical GET using the
+object id and namespace returned by search.
 
-## SSE: `/v1/thoughts/stream`
+### Recent episodic activity
 
-The full transport description is in
-[`architecture/transport.md`](./architecture/transport.md). The **six
-normative client rules** from the upstream spec are reproduced here so
-consumer reviewers can audit a client's compliance without cross-doc
-hopping:
+`musubi_recent` calls `GET /v1/episodic?namespace=...&limit=...`, applies
+optional tags and time filters, then sorts timestamps client-side because the
+underlying page order is not a recency guarantee.
 
-### 1. Exponential backoff with jitter on drop
+## Deep operator proof
 
-```
-delay_ms = min(2^n * 1000 + rand(0, 1000), 60_000)
-```
+`openclaw musubi-doctor --agent <id>` is explicit and mutating. It:
 
-`n` starts at 0, increments each failed attempt, resets to 0 after the
-connection remains stable for 5 minutes. Upper bound is configurable via
-`thoughts.reconnect.maxBackoffMs` but must not go below 60s without an
-operational reason documented in config.
+1. queues a unique diagnostic through the same SQLite outbox as a real turn;
+2. waits for canonical GET verification;
+3. requires semantic retrieval to return that exact object; and
+4. soft-archives the diagnostic with `DELETE /v1/episodic/{id}?namespace=...`.
 
-### 2. Persist `Last-Event-ID` across restarts
+A cleanup failure makes the doctor fail. The doctor never runs at startup.
 
-The client stores the most recent acknowledged `id:` value in durable
-storage scoped to the plugin. In OpenClaw that's the plugin's state
-store; in a browser extension it's `chrome.storage.local` or IndexedDB; in
-a Python consumer it's a file or KV entry. Losing the id replays the
-entire plane on next connect.
+## Status and degradation
 
-### 3. Bounded local dedup set
+`/musubi-status`, gateway method `musubi.status`, and `openclaw musubi-status`
+report local provider truth: service running state, pending and dead rows,
+oldest pending age, failure streak, and last verified delivery. They do not
+claim to be remote-core health probes.
 
-Keep the last **1000** `object_id`s or a **1-hour TTL**, whichever bound
-is hit first. Replay on reconnect and in-flight delivery may overlap; the
-set skips duplicates.
+## Thoughts boundary
 
-### 4. Scope-mismatch handling
-
-`403 Forbidden` on the initial GET is a token-scope problem. Clients must
-**not** reconnect on 403. Surface a user-visible status ("Musubi
-authentication needs refresh") and wait for operator action.
-
-### 5. Ping-gap timeout
-
-Server sends `event: ping` every 30 seconds. If **no frame of any kind**
-(thought, ping, close) arrives in 60 seconds (2× the ping interval), the
-connection is presumed dead. The client closes its side, which triggers
-the normal reconnect path. This catches silent half-open TCPs that VPNs
-and corporate proxies can produce.
-
-### 6. Lexicographic ID comparison
-
-`object_id` is a **KSUID** — 27 characters, base62. Compare as strings,
-not as numbers. `"2iVVRLuCj..." > "2iVVRLuAh..."` is the correct ordering
-for sort, dedup insertion, and `Last-Event-ID` replay cursor selection.
-
-## Fanout is broadcast (normative)
-
-Two clients subscribed to the same presence **each receive every event**.
-A plugin instance must not assume it "owns" a presence's stream. This
-matters because:
-
-- A user may have two browsers open and a LiveKit worker all subscribed
-  to `eric/aoi` — all three are expected to see every thought.
-- The plugin handles this by relying on the dedup set (rule 3) for any
-  in-process deduplication, not by assuming single-consumer semantics.
-
-The upstream spec marks this as normative and not-to-be-regressed. The
-plugin depends on it and will not add "only one tab should receive" logic.
-
-## Write-path expectations
-
-### Episodic capture
-
-- Single: `POST /v1/episodic`. Idempotency-Key recommended, required on
-  retry.
-- Batch: `POST /v1/episodic/batch`. Used by the capture-mirror hook when
-  OpenClaw flushes multiple memories at once.
-
-### Thoughts
-
-- Send: `POST /v1/thoughts/send`. Idempotent on client-provided
-  `client_id` in the body (KSUID minted by the client).
-- Check (polling fallback): `POST /v1/thoughts/check`. Used when the SSE
-  stream is unavailable or disabled.
-
-### Curated
-
-- The plugin reads curated but does not write by default. A future
-  `musubi_curate` tool may let agents propose curated additions; those go
-  through Musubi's normal curated-write path (`POST /v1/curated`) with
-  appropriate scope.
-
-## Read-path expectations
-
-### Retrieve
-
-- `POST /v1/retrieve` with `mode: "fast"` for prompt-supplement reads
-  (must return within the prompt-build latency budget).
-- `POST /v1/retrieve` with `mode: "deep"` for the explicit `musubi_search`
-  tool (agent-triggered, no strict latency budget). `musubi_recall` is
-  the one-release deprecation alias that hits the same endpoint.
-- `GET /v1/episodic?namespace=…&limit=…` for the `musubi_recent` tool's
-  presence-scoped fallback. Cross-modal scope (`<tenant>/*/episodic`)
-  lights up when Musubi ships `mode=recent` (slice-retrieve-recent / #288)
-  and the wildcard-namespace primitive (slice-api-retrieve-wildcards).
-- `GET /v1/{plane}/{object_id}?namespace=…` for the explicit `musubi_get`
-  tool — fetch one object's full content by id after a recall surfaces a
-  load-bearing snippet. Plane path is `curated`, `concepts`, `episodic`,
-  or `artifacts` (matching the canonical router prefixes).
-
-### Planes
-
-- The supplement reads from `curated` and `concept` by default. Operators
-  may add `episodic` if they want recent-episodic context in the prompt
-  as well, but this is off by default because episodic is noisy.
-
-## Health and degradation
-
-- `GET /v1/ops/health` — simple liveness probe.
-- `GET /v1/ops/status` — per-component status, once
-  `slice-ops-observability` ships upstream. The plugin surfaces the
-  reported degraded components in its config-UI status panel.
-- If the core is unreachable, the plugin serves empty supplements and
-  fails recall/remember/think tools with a typed error. It does not
-  prevent OpenClaw's native memory engine from running.
+Outbound `musubi_think` uses `POST /v1/thoughts/send`. The former inbound SSE
+consumer is not shipped in this release: it had no verified path from a
+received event into OpenClaw context. The protocol is documented only as
+historical reference in `architecture/transport.md`; it is not part of the
+active provider contract.

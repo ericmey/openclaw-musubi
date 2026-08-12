@@ -1,8 +1,9 @@
 # openclaw-musubi — Validated Issue Tracker
 
-> Cross-validated against the Musubi core (`~/Projects/musubi`) on 2026-04-23.
-> This document tracks every confirmed, corrected, or newly discovered issue.
-> **Do not edit priority levels without a second review.**
+> **Historical audit snapshot only.** Cross-validated on 2026-04-23; it does
+> not describe current code or current priorities. Re-run `npm test` and inspect
+> the current implementation before acting on any item. Current architecture is
+> ADR-0004; this file is retained as evidence of what the early scaffold lacked.
 
 ---
 

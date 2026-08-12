@@ -1,77 +1,74 @@
 # openclaw-musubi
 
-**Musubi memory plane for OpenClaw agents.** Episodic capture, curated
-knowledge recall, and presence-to-presence thought delivery — all routed
-through a [Musubi](https://github.com/ericmey/musubi) core so your agents
-share one memory across every modality they live in.
+**First-class durable Musubi memory for OpenClaw agents.** The plugin owns
+OpenClaw's exclusive memory slot and routes completed-turn capture, semantic
+recall, exact-object reads, and deliberate stores through a Musubi core.
 
-> Status: **early scaffold.** The repository structure, documentation, and
-> plugin contract are being established first. Implementation slices follow.
-> See [`docs/`](./docs) for the in-progress architecture.
+## Current architecture
 
-## What it does
+`openclaw-musubi` declares `kind: "memory"` and must be selected with
+`plugins.slots.memory = "musubi"`. It does not run beside `memory-core` as an
+additive supplement. That earlier architecture is historical and was
+superseded by [ADR-0004](./docs/decisions/0004-first-class-memory-provider.md).
 
-OpenClaw agents run in many places — CLI sessions, Discord, LiveKit voice,
-browser extensions. Each modality has its own short-term memory, but nothing
-knows what the others saw. Musubi is designed to be the shared memory plane
-that spans them. `openclaw-musubi` is the plugin that plugs OpenClaw into it.
+The provider:
 
-The plugin sits **sidecar** to OpenClaw's native memory engine — it does not
-replace it. Instead it:
+- registers the exclusive OpenClaw memory capability;
+- exposes native `memory_search`, `memory_get`, and `memory_store` tools, plus
+  the canonical Musubi tool surface;
+- commits every completed turn to a local SQLite outbox before the
+  `agent_end` hook returns;
+- delivers with stable idempotency, receipt lookup, accepted/verified states,
+  and canonical GET readback;
+- retains retryable and permanently blocked deliveries for operator action;
+- exposes delivery truth through `/musubi-status`, `musubi.status`, and the
+  `openclaw musubi-status` CLI command.
 
-- **Mirrors** OpenClaw memory writes into Musubi's episodic plane so every
-  capture lands in the cross-modality pool automatically.
-- **Supplements** the memory prompt with Musubi's curated knowledge and
-  synthesized concepts, labeled with provenance so the model weighs
-  authoritative sources higher than raw episodic chatter.
-- **Exposes the canonical agent-tools surface** — `musubi_recent`,
-  `musubi_search`, `musubi_get`, `musubi_remember`, `musubi_think` — the
-  same five tools every Musubi adapter exposes (MCP, LiveKit, OpenClaw)
-  per ADR 0032. Plus `musubi_recall` as a one-release deprecation alias
-  for `musubi_search`.
-- **Streams thoughts** inbound over Server-Sent Events so a thought sent by
-  your Claude Code session surfaces in your Discord-facing agent within
-  seconds, not polling-intervals.
-
-This "sidecar-with-authority" model is a deliberate architectural choice
-documented in [`docs/decisions/0001-sidecar-with-authority.md`](./docs/decisions/0001-sidecar-with-authority.md).
+Outbound `musubi_think` remains available. The former inbound SSE thought
+subscriber is deliberately not registered: it had no OpenClaw context-delivery
+contract and consuming a thought into an empty handler would be data loss
+disguised as delivery.
 
 ## Requirements
 
-- **OpenClaw** `>= 2026.4.10`
-- **Node.js** `>= 22`
-- **pnpm** (recommended) or npm
-- A reachable **Musubi core** (v2) with at minimum the HTTP API shipped.
-  The `/thoughts/stream` SSE endpoint is required for real-time thought
-  delivery; without it, thought support degrades gracefully to polling.
+- OpenClaw `>= 2026.7.1`
+- Node.js `>= 22.22.3`
+- A reachable Musubi core with canonical episodic and retrieval APIs
 
-## Install
+## Configuration
 
-Not yet published — the package will be available on ClawHub and npm once
-the first implementation slice lands.
-
-```bash
-# Future install command
-openclaw plugins install openclaw-musubi
-```
-
-## Configure
-
-A minimal configuration in your `openclaw.json`:
+Musubi secret fields are declared OpenClaw `secretInputs`; use the same
+structured SecretRef form as other native OpenClaw secrets. Literal `${...}`
+placeholders are rejected locally before the provider registers.
 
 ```json
 {
   "plugins": {
+    "slots": { "memory": "musubi" },
     "entries": {
       "musubi": {
+        "enabled": true,
         "config": {
           "core": {
-            "baseUrl": "https://musubi.your-domain.internal",
-            "token": "${MUSUBI_TOKEN}"
+            "baseUrl": "https://musubi.example.internal",
+            "token": {
+              "source": "exec",
+              "provider": "onepassword",
+              "id": "musubi-default"
+            },
+            "perAgentTokens": {
+              "vesper": {
+                "source": "exec",
+                "provider": "onepassword",
+                "id": "musubi-vesper"
+              }
+            }
           },
           "presence": {
-            "defaultId": "you/openclaw"
-          }
+            "defaultId": "owner/openclaw",
+            "perAgent": { "vesper": "vesper/openclaw" }
+          },
+          "capture": { "completedTurns": true }
         }
       }
     }
@@ -79,33 +76,38 @@ A minimal configuration in your `openclaw.json`:
 }
 ```
 
-See [`openclaw.plugin.json`](./openclaw.plugin.json) for the full config
-schema, and [`docs/api-contract.md`](./docs/api-contract.md) for the
-consumer-side behavior expected of any client (this plugin, but also
-third-party reimplementations).
+## Verify the live contract
+
+These commands re-establish the claims above; the dates in documentation do
+not substitute for running them:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+openclaw plugins inspect musubi --runtime --json
+openclaw musubi-status
+openclaw musubi-doctor --agent vesper
+```
+
+The loader-backed test runs a built artifact through OpenClaw 2026.7.1 with
+`plugins.slots.memory = "musubi"`; it fails if manifest kind, runtime kind, or
+exclusive capability ownership drift apart.
+
+`musubi-doctor` is an explicit deep proof: it queues a diagnostic through the
+same SQLite delivery path as a real turn, waits for canonical GET verification,
+requires semantic retrieval to return that exact object, then soft-archives the
+probe. It never runs automatically.
 
 ## Documentation
 
 - [Architecture overview](./docs/architecture/overview.md)
+- [Runtime wiring](./docs/architecture/wiring.md)
 - [Presence model](./docs/architecture/presence-model.md)
-- [Transport: HTTP + SSE](./docs/architecture/transport.md)
-- [API consumer contract](./docs/api-contract.md)
+- [Transport and API contract](./docs/api-contract.md)
 - [Architecture decisions](./docs/decisions/)
-
-## Contributing
-
-This is an OSS project built in the open. Read
-[`CONTRIBUTING.md`](./CONTRIBUTING.md) for slice-based workflow, commit
-conventions, and what makes a PR mergeable. Report security issues via the
-process in [`SECURITY.md`](./SECURITY.md).
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
-
-## Related projects
-
-- [Musubi](https://github.com/ericmey/musubi) — the memory core this plugin
-  talks to.
-- [OpenClaw](https://github.com/openclaw/openclaw) — the agent platform this
-  plugin extends.
+MIT — see [LICENSE](./LICENSE).

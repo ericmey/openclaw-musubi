@@ -2,9 +2,8 @@
  * Translate an OpenClaw capture-eligible event into a Musubi episodic
  * capture payload. Pure function — no I/O. Easy to test in isolation.
  *
- * The `idempotencyKey` is derived from the source event id so a retried
- * mirror call posts to the same logical capture rather than creating
- * duplicates. See ADR-0001 for why dual-write is acceptable.
+ * The `idempotencyKey` is derived from the source event id so replay posts to
+ * the same logical capture rather than creating duplicates.
  */
 
 import type { PresenceContext } from "../presence/resolver.js";
@@ -103,6 +102,9 @@ export function toCanonicalCapture(payload: EpisodicCapturePayload): CanonicalCa
 
 const CAPTURE_SOURCE = "openclaw-agent-end";
 const DEFAULT_IMPORTANCE = 5;
+// Kept for receipt continuity with 1.0.x rows that may already exist in a
+// consumer outbox. The label is historical; changing it would break replay
+// identity across an upgrade.
 const IDEMPOTENCY_PREFIX = "openclaw-mirror";
 
 export function translateCaptureEvent(

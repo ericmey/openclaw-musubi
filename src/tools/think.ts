@@ -1,7 +1,7 @@
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
-import { resolvePresence } from "../presence/resolver.js";
+import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import { ThinkParameters, type ThinkParams } from "./parameters.js";
 
 /**
@@ -48,7 +48,7 @@ export function createThinkTool(options: CreateThinkToolOptions): ThinkTool {
         "Send a thought to another presence (agent, modality, or human endpoint). The recipient sees it in real-time via their thought stream. Use for cross-modality coordination: tell your CLI session the deploy finished, tell a voice agent to call back later, etc.",
       parameters: ThinkParameters,
       async execute(_toolCallId, params) {
-        let presence;
+        let presence: PresenceContext;
         try {
           presence = resolvePresence(config, { agentId });
         } catch (err) {
