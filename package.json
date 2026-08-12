@@ -1,6 +1,6 @@
 {
   "name": "openclaw-musubi",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "First-class durable Musubi memory provider for OpenClaw agents.",
   "type": "module",
   "license": "MIT",
@@ -62,7 +62,7 @@
   },
   "pnpm": {
     "overrides": {
-      "@sinclair/typebox": "0.34.49"
+      "@sinclair/typebox": "0.34.52"
     }
   },
   "openclaw": {
