@@ -24,11 +24,26 @@ OpenClaw loader and cannot become a plugin reported as loaded but inert.
 
 ## Host-owned service
 
-`registerService({ id: "musubi-memory" })` owns all long-lived state:
+`registerService({ id: "musubi-memory" })` starts the process-wide delivery
+authority:
 
 - SQLite outbox at `<stateDir>/musubi/delivery-outbox.sqlite`;
 - lease recovery and delivery worker;
 - deterministic shutdown.
+
+OpenClaw 2026.7.1 can evaluate the plugin once per embedded agent run while
+starting services for only the gateway-owned registration. Consequently,
+registration-local controllers are not a valid ownership boundary: an
+`agent_end` handler may belong to a different registration from the service
+that opened the outbox. Every `DeliveryController` therefore routes through a
+`globalThis`-keyed process authority, and every registration contributes to one
+process-wide content-free capture diagnostic. A newer service start supersedes
+the prior owner; stopping that stale owner cannot close the replacement.
+
+The process authority is a plugin-side compatibility boundary, not an assertion
+that OpenClaw's per-run registration lifecycle is ideal. Regression coverage
+must register the plugin twice, start the service once, dispatch through the
+second registration, and require durable enqueue.
 
 The old inbound thought SSE subscriber is not registered. Its handler did not
 deliver received thoughts into OpenClaw context, so starting it would consume a
@@ -60,11 +75,28 @@ Crash boundaries are explicit: a committed pending row survives restart; an
 accepted row never repeats POST; an orphaned lease returns to pending or
 accepted based on whether `object_id` was persisted.
 
-## Runtime verification
+## Verification
+
+Repository gates:
 
 ```bash
 npm run build
 npm test
+```
+
+On OpenClaw 2026.7.1, CLI bootstrap validates plugin config before the
+`--allow-exec` prepared-secret snapshot is applied. A deployment that correctly
+stores `SecretRef` objects can therefore fail `plugins inspect`, `doctor`, and
+plugin CLI commands with `Expected string` even while the gateway materializes
+the same fields and runs successfully. Until OpenClaw fixes that ordering,
+gateway startup diagnostics, `musubi.status`, and the receiving Musubi API are
+the authoritative installed-path proof; do not replace structured secret refs
+with plaintext or `${...}` strings to make the CLI green.
+
+Once OpenClaw prepares secrets before CLI plugin bootstrap, these commands are
+the intended operator surface:
+
+```bash
 openclaw plugins inspect musubi --runtime --json
 openclaw musubi-status
 openclaw musubi-doctor --agent vesper

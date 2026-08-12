@@ -29,6 +29,7 @@ describe("OpenClaw loader acceptance", () => {
           entries: {
             musubi: {
               enabled: true,
+              hooks: { allowConversationAccess: true },
               config: {
                 core: { baseUrl: "https://musubi.invalid", token: "loader-test-token" },
                 presence: { defaultId: "loader/test" },
@@ -62,6 +63,7 @@ describe("OpenClaw loader acceptance", () => {
     const parsed = JSON.parse(stdout) as Record<string, unknown>;
     expect(JSON.stringify(parsed)).toContain('"id":"musubi"');
     expect(JSON.stringify(parsed)).toContain('"kind":"memory"');
+    expect(JSON.stringify(parsed)).toContain('"agent_end"');
     expect(JSON.stringify(parsed)).not.toMatch(/registration failed|inert|error.*musubi/iu);
 
     // The loader must not mutate authored config during a read-only inspect.
@@ -85,6 +87,7 @@ describe("OpenClaw loader acceptance", () => {
           entries: {
             musubi: {
               enabled: true,
+              hooks: { allowConversationAccess: true },
               config: {
                 core: {
                   baseUrl: "https://musubi.invalid",

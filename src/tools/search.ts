@@ -43,6 +43,92 @@ export type SearchTool = {
 
 const DEFAULT_LIMIT = 10;
 
+/**
+ * Below this top score, candidate CONTENT is withheld entirely.
+ *
+ * Initial safety floor, not a tuned value. On 2026-08-07 a failed recall query
+ * against Mizuki's namespace returned a flat plateau topping out at 0.54; later
+ * corpus inspection showed that plateau was dominated by duplicate OpenClaw
+ * heartbeat probes, not wrong-week human memories. The incident proves that
+ * weak machine-noise candidates must be withheld, but it does NOT calibrate
+ * relevance for clean human memories. Keep 0.60 as a conservative provisional
+ * floor until known-answer queries against the cleaned corpus measure both
+ * genuine matches and genuine near-misses.
+ *
+ * Deliberately asymmetric: a false miss is recoverable by rephrasing the
+ * question. Fabricated episodic certainty is not -- it becomes something a
+ * person believes they lived. Do not lower it on intuition.
+ */
+const STRONG_MATCH_MIN_SCORE = 0.6;
+
+/** Same per-plane paths get.ts uses; retrieval carries no date of its own. */
+const PLANE_PATH: Record<string, string> = {
+  curated: "/v1/curated",
+  concept: "/v1/concepts",
+  episodic: "/v1/episodic",
+  artifact: "/v1/artifacts",
+};
+
+type DatedRow = MusubiRetrieveRow & { readonly created_at?: string };
+type DateEnrichment = {
+  readonly rows: readonly DatedRow[];
+  readonly warnings: readonly string[];
+};
+
+/**
+ * Attach each candidate's real source date.
+ *
+ * `/v1/retrieve` returns object_id, namespace, plane, score, content, state,
+ * importance, score_kind, extra and title -- verified against the live API on
+ * 2026-08-07, not merely against our own type. There is no date on the wire and
+ * `extra` holds only lineage and score_components, so a date cannot be surfaced
+ * by typing an existing field; it has to be fetched.
+ *
+ * Why this matters: asked about one week and handed memories from another, the
+ * model had NO field that distinguished them. We required a judgement we never
+ * gave it the information to make. Enrichment is bounded by `limit` and each
+ * failure degrades to "date unavailable" -- never to a guess, and never to
+ * silently omitting the date, which is the state that caused this.
+ */
+async function withDates(
+  rows: readonly MusubiRetrieveRow[],
+  client: MusubiClient,
+  token: string,
+): Promise<DateEnrichment> {
+  const enriched = await Promise.all(
+    rows.map(async (row) => {
+      const base = PLANE_PATH[row.plane];
+      if (!base) {
+        return {
+          row,
+          warning: `date metadata unavailable for unsupported plane ${row.plane} (${row.namespace}/${row.object_id})`,
+        };
+      }
+      try {
+        const full = await client.getWithQuery<{ created_at?: string; event_at?: string }>(
+          `${base}/${encodeURIComponent(row.object_id)}`,
+          { namespace: row.namespace },
+          { token },
+        );
+        // `created_at` is the lived/source chronology. Historical imports keep
+        // that original timestamp while `event_at` records the later ingestion
+        // lifecycle event. Prefer the source date so an old memory does not
+        // present itself as something that happened during tonight's import.
+        return { row: { ...row, created_at: full.created_at ?? full.event_at } };
+      } catch (err) {
+        return {
+          row,
+          warning: `date metadata unavailable for ${row.plane} ${row.namespace}/${row.object_id}: ${errorMessage(err)}`,
+        };
+      }
+    }),
+  );
+  return {
+    rows: enriched.map((entry) => entry.row),
+    warnings: enriched.flatMap((entry) => (entry.warning ? [entry.warning] : [])),
+  };
+}
+
 type MusubiRetrieveRow = {
   readonly object_id: string;
   readonly score: number;
@@ -86,7 +172,11 @@ export async function executeSearch(
     targets.map((t) =>
       client.post<MusubiRetrieveResponse>("/v1/retrieve", {
         body: {
-          namespace: t.baseNamespace,
+          // `namespace` is deliberately omitted for undefined targets:
+          // the server's family-discovery path filters unauthorized
+          // namespaces instead of 403ing the whole request the way an
+          // explicit wildcard does. See retrieval/targets.ts.
+          ...(t.namespace !== undefined ? { namespace: t.namespace } : {}),
           planes: [...t.planes],
           query_text: params.query,
           mode: "deep",
@@ -107,6 +197,7 @@ export async function executeSearch(
   const seen = new Set<string>();
   const merged: MusubiRetrieveRow[] = [];
   const warnings: string[] = [];
+  const expectedOwner = targets[0]?.expectedOwner;
   for (const result of settled) {
     if (result.status !== "fulfilled") {
       warnings.push(`one retrieval target failed: ${errorMessage(result.reason)}`);
@@ -116,6 +207,29 @@ export async function executeSearch(
       warnings.push(`Musubi warning: ${formatWarning(warning)}`);
     }
     for (const row of result.value.results ?? []) {
+      // IDENTITY BOUNDARY — the FIRST statement in the row loop, before
+      // any downstream content handling: the row is never merged,
+      // surfaced, or logged. (The HTTP body was necessarily JSON-parsed
+      // by the client before this loop; the guarantee is about what
+      // happens to row content after that.) No-namespace retrieval lets
+      // the server derive the identity family from the presented token
+      // alone, so a credential misbinding (this agent configured with
+      // another agent's token) would otherwise SUCCEED and hand this
+      // agent someone else's memories. A single foreign row fails the
+      // entire call — no partial success, no silent dropping — so
+      // operators see the misbinding instead of the agents quietly
+      // sharing a mind.
+      const rowNamespace = typeof row.namespace === "string" ? row.namespace : "";
+      const rowOwner = rowNamespace.split("/", 1)[0];
+      if (expectedOwner === undefined || rowOwner !== expectedOwner) {
+        return toolError(
+          `Musubi identity boundary violation: retrieval returned namespace ` +
+            `"${rowNamespace}" outside the configured identity "${expectedOwner ?? "?"}/…". ` +
+            `No results were surfaced. This means the token bound to this agent ` +
+            `authenticates a DIFFERENT identity family — check ` +
+            `plugins.entries.musubi.config.core.perAgentTokens for this agent before retrying.`,
+        );
+      }
       if (seen.has(row.object_id)) continue;
       seen.add(row.object_id);
       merged.push(row);
@@ -130,7 +244,24 @@ export async function executeSearch(
         : `No Musubi results for "${params.query}".`;
     return toolText(appendWarnings(status, warnings));
   }
-  return toolText(appendWarnings(formatResults(results), warnings));
+  const top = results[0]?.score ?? 0;
+  if (top < STRONG_MATCH_MIN_SCORE) {
+    // FAIL CLOSED. Withhold content, not just confidence. Showing weak
+    // candidates alongside a caveat still puts plausible text in front of the
+    // model, and that is precisely what got promoted into a claimed event.
+    return toolText(
+      appendWarnings(
+        `NO STRONG MATCH for "${params.query}" (top similarity ${top.toFixed(2)}, ` +
+          `floor ${STRONG_MATCH_MIN_SCORE.toFixed(2)}). ${results.length} weak ` +
+          `candidate(s) were withheld: they are nearest neighbours, not evidence ` +
+          `that any specific event occurred. Say you do not remember, or ask for ` +
+          `a more specific detail and search again.`,
+        warnings,
+      ),
+    );
+  }
+  const dated = await withDates(results, client, presence.token);
+  return toolText(appendWarnings(formatResults(dated.rows), [...warnings, ...dated.warnings]));
 }
 
 export function createSearchTool(options: CreateSearchToolOptions): SearchTool {
@@ -148,13 +279,14 @@ export function createSearchTool(options: CreateSearchToolOptions): SearchTool {
   };
 }
 
-function formatResults(rows: readonly MusubiRetrieveRow[]): string {
+function formatResults(rows: readonly DatedRow[]): string {
   const lines: string[] = [];
   lines.push(`Musubi returned ${rows.length} result(s):`);
   lines.push("");
   for (const row of rows) {
     const label = row.title ? `${row.title}` : `${row.namespace}/${row.object_id}`;
-    lines.push(`[${row.plane}] (score ${row.score.toFixed(2)}) ${label}`);
+    const when = row.created_at ? row.created_at.slice(0, 10) : "date unavailable";
+    lines.push(`[${row.plane}] (${when}) (score ${row.score.toFixed(2)}) ${label}`);
     lines.push(row.content);
     lines.push("");
   }

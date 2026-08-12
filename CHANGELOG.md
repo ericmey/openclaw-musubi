@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.4](https://github.com/ericmey/openclaw-musubi/compare/v2.0.3...v2.0.4) (2026-08-08)
+
+
+### Bug Fixes
+
+* **memory:** preserve source chronology in recall ([7509227](https://github.com/ericmey/openclaw-musubi/commit/7509227df3d2db27998414570e2f508686499638))
+
+## [2.0.3](https://github.com/ericmey/openclaw-musubi/compare/v2.0.2...v2.0.3) (2026-08-08)
+
+
+### Bug Fixes
+
+* **memory:** give recall a date, and a floor below which it says nothing ([fb9dc33](https://github.com/ericmey/openclaw-musubi/commit/fb9dc338b08188134746dd06f0da7e257ae4fa63))
+* **memory:** make recall evidence boundaries explicit ([28c4186](https://github.com/ericmey/openclaw-musubi/commit/28c41866bf6db67fd887a0df8ae18924984c92e0))
+* **memory:** qualify and surface recall date lookups ([c8fc203](https://github.com/ericmey/openclaw-musubi/commit/c8fc2038a09f993e03284bc6d81af52bf4882db2))
+
+## [2.0.2](https://github.com/ericmey/openclaw-musubi/compare/v2.0.1...v2.0.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* share delivery across plugin registrations ([7060b7a](https://github.com/ericmey/openclaw-musubi/commit/7060b7ab3a6f3fb4fc0dbee2337d5a22c0fc10db))
+
+## [2.0.1](https://github.com/ericmey/openclaw-musubi/compare/v2.0.0...v2.0.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* expose passive capture diagnostics ([97bd5ce](https://github.com/ericmey/openclaw-musubi/commit/97bd5ce0f2ae4660d5ec76c6bfdeecd11c9cadd4))
+
 ## [2.0.0](https://github.com/ericmey/openclaw-musubi/compare/v1.0.3...v2.0.0) (2026-08-07)
 
 

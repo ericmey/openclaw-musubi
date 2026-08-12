@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { FormatRegistry } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
-import type { OpenClawPluginApi } from "../api.js";
+import { getGlobalPluginRegistry, type OpenClawPluginApi } from "../api.js";
+import {
+  type CaptureDiagnostics,
+  type CaptureDiagnosticsSnapshot,
+  type CaptureSkipReason,
+  getProcessCaptureDiagnostics,
+} from "../capture/diagnostics.js";
 import type { CaptureEvent } from "../capture/translate.js";
 import { type MusubiConfig, MusubiConfigSchema } from "../config.js";
 import { DeliveryController } from "../delivery/controller.js";
@@ -38,7 +44,12 @@ export type RegisterOptions = {
 export type RegisteredMusubi = {
   readonly config: MusubiConfig;
   readonly delivery: DeliveryController;
+  readonly captureDiagnostics: CaptureDiagnostics;
 };
+
+export type AgentEndTranslation =
+  | { readonly ok: true; readonly capture: CaptureEvent }
+  | { readonly ok: false; readonly reason: Exclude<CaptureSkipReason, "capture_disabled"> };
 
 /**
  * Register the first-class Musubi memory provider synchronously. Validation
@@ -56,6 +67,7 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
     fetch: options.fetch,
   });
   const delivery = new DeliveryController({ client, config, logger: api.logger });
+  const captureDiagnostics = getProcessCaptureDiagnostics();
 
   api.registerMemoryCapability({
     // Musubi captures every completed turn durably at agent_end, so it does not
@@ -68,26 +80,43 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
   registerTools(api, client, config, delivery);
 
   api.on("agent_end", async (event: unknown, ctx: { agentId?: string }) => {
-    const capture = translateAgentEndEvent(event, ctx.agentId);
+    captureDiagnostics.observe();
     const captureEnabled =
       config.capture?.completedTurns ?? config.capture?.mirrorOpenClawMemory ?? true;
-    if (!capture || !captureEnabled) return;
+    if (!captureEnabled) {
+      captureDiagnostics.skip("capture_disabled");
+      logCaptureDiagnostic(api, captureDiagnostics, "capture_disabled");
+      return;
+    }
+    const translated = translateAgentEndEventWithReason(event, ctx.agentId);
+    if (!translated.ok) {
+      captureDiagnostics.skip(translated.reason);
+      logCaptureDiagnostic(api, captureDiagnostics, translated.reason);
+      return;
+    }
+    captureDiagnostics.translated();
     try {
-      delivery.enqueueCapture(capture);
+      delivery.enqueueCapture(translated.capture);
+      captureDiagnostics.enqueued();
+      logCaptureDiagnostic(api, captureDiagnostics, "enqueued");
     } catch (error) {
+      captureDiagnostics.enqueueFailed();
       // A local enqueue failure is not allowed to break the user turn, but it
       // is loud and operator-visible. It is never described as captured.
       api.logger.error(`musubi: agent_end capture was not queued — ${errorMessage(error)}`);
+      logCaptureDiagnostic(api, captureDiagnostics, "enqueue_failed");
     }
   });
 
   api.registerService({
     id: "musubi-memory",
     start: async (ctx) => {
-      delivery.start(join(ctx.stateDir, "musubi", "delivery-outbox.sqlite"));
+      await delivery.start(join(ctx.stateDir, "musubi", "delivery-outbox.sqlite"));
+      captureDiagnostics.reset();
       api.logger.info(
         `musubi first-class memory provider started (base_url=${config.core.baseUrl})`,
       );
+      logCaptureDiagnostic(api, captureDiagnostics, "service_started");
     },
     stop: async () => {
       await delivery.stop();
@@ -96,13 +125,20 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
 
   api.registerGatewayMethod(
     "musubi.status",
-    ({ respond }) => respond(true, { provider: "musubi", ...delivery.status() }),
+    ({ respond }) =>
+      respond(true, {
+        provider: "musubi",
+        ...delivery.status(),
+        capture: captureStatus(captureDiagnostics),
+      }),
     { scope: "operator.read" },
   );
   api.registerCommand({
     name: "musubi-status",
     description: "Show Musubi memory delivery health.",
-    handler: async () => ({ text: formatStatus(delivery.status()) }),
+    handler: async () => ({
+      text: formatStatus(delivery.status(), captureStatus(captureDiagnostics)),
+    }),
   });
   api.registerCommand({
     name: "musubi-doctor",
@@ -118,7 +154,13 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
         .command("musubi-status")
         .description("Show Musubi memory delivery health")
         .action(() => {
-          process.stdout.write(`${JSON.stringify({ provider: "musubi", ...delivery.status() })}\n`);
+          process.stdout.write(
+            `${JSON.stringify({
+              provider: "musubi",
+              ...delivery.status(),
+              capture: captureStatus(captureDiagnostics),
+            })}\n`,
+          );
         });
       program
         .command("musubi-doctor")
@@ -152,7 +194,7 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
     },
   );
 
-  return { config, delivery };
+  return { config, delivery, captureDiagnostics };
 }
 
 function warnDeprecatedConfig(api: OpenClawPluginApi, config: MusubiConfig): void {
@@ -195,7 +237,7 @@ function buildMemoryPrompt(availableTools: Set<string>): string[] {
   const store = availableTools.has("memory_store") ? "memory_store" : "musubi_remember";
   return [
     "## Musubi memory",
-    `Use ${search} when prior events, decisions, preferences, or relationships may matter. Use ${get} for exact-object grounding and ${store} for deliberate durable memory. A store result is truthful about queued versus verified delivery; do not describe queued data as stored.`,
+    `Use ${search} when prior events, decisions, preferences, or relationships may matter. Search results are semantically related candidates, not proof that a specific event happened. Before making an episodic claim, require the returned evidence to directly support who, what, and when; use ${get} for exact-object grounding when needed. If no result directly supports the requested event, or the result lacks the metadata needed to distinguish it, say you do not remember or could not find it. Never invent or infer specifics absent from the retrieved objects. Use ${store} for deliberate durable memory. A store result is truthful about queued versus verified delivery; do not describe queued data as stored.`,
   ];
 }
 
@@ -248,9 +290,17 @@ function registerTools(
 }
 
 export function translateAgentEndEvent(event: unknown, agentId?: string): CaptureEvent | undefined {
-  if (!event || typeof event !== "object") return undefined;
+  const result = translateAgentEndEventWithReason(event, agentId);
+  return result.ok ? result.capture : undefined;
+}
+
+export function translateAgentEndEventWithReason(
+  event: unknown,
+  agentId?: string,
+): AgentEndTranslation {
+  if (!event || typeof event !== "object") return { ok: false, reason: "event_not_object" };
   const candidate = event as { messages?: unknown[]; runId?: unknown; sessionId?: unknown };
-  if (!Array.isArray(candidate.messages)) return undefined;
+  if (!Array.isArray(candidate.messages)) return { ok: false, reason: "messages_missing" };
 
   let assistant: string | undefined;
   let user: string | undefined;
@@ -268,16 +318,44 @@ export function translateAgentEndEvent(event: unknown, agentId?: string): Captur
       break;
     }
   }
-  if (!assistant) return undefined;
+  if (!assistant) return { ok: false, reason: "assistant_missing" };
+  if (user !== undefined && isHeartbeatPoll(user)) {
+    // Heartbeat polls are machine cadence, not lived experience. Before
+    // this filter one identical heartbeat turn was enqueued 300+ times
+    // per agent; the noise dominated `mode=recent`, forced the recall
+    // floor in tools/search.ts, and fed the synthesis mega-cluster.
+    // The assistant's reply to a heartbeat is derivative of memories
+    // that were already captured on their original turns — anything an
+    // agent genuinely wants to keep from a heartbeat goes through the
+    // explicit `musubi_remember` path, which does not pass through here.
+    return { ok: false, reason: "heartbeat_poll" };
+  }
   const content = user ? `User:\n${user}\n\nAssistant:\n${assistant}` : `Assistant:\n${assistant}`;
   const runId = typeof candidate.runId === "string" ? candidate.runId : undefined;
   const sessionId = typeof candidate.sessionId === "string" ? candidate.sessionId : "unknown";
   const stableDigest = createStableDigest(`${agentId ?? "default"}\n${sessionId}\n${content}`);
   return {
-    id: runId ? `agent-end:${runId}` : `agent-end:${stableDigest}`,
-    content,
-    agentId,
+    ok: true,
+    capture: {
+      id: runId ? `agent-end:${runId}` : `agent-end:${stableDigest}`,
+      content,
+      agentId,
+    },
   };
+}
+
+/**
+ * OpenClaw's heartbeat prompt as observed at the capture seam. Matched
+ * when the user turn IS the poll marker — optional surrounding
+ * whitespace only (`extractMessageText` trims before we compare, and we
+ * trim again here). Deliberately narrow: a human message that merely
+ * mentions the marker mid-text still captures.
+ */
+const HEARTBEAT_POLL_MARKER = "[OpenClaw heartbeat poll]";
+
+function isHeartbeatPoll(userText: string): boolean {
+  const trimmed = userText.trim();
+  return trimmed === HEARTBEAT_POLL_MARKER;
 }
 
 function extractRole(message: unknown): string | undefined {
@@ -310,12 +388,48 @@ function createStableDigest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function formatStatus(status: ReturnType<DeliveryController["status"]>): string {
+function formatStatus(
+  status: ReturnType<DeliveryController["status"]>,
+  capture: CaptureDiagnosticsSnapshot & { readonly hookRegistered: boolean },
+): string {
   return [
     `Musubi memory: ${status.running ? (status.degraded ? "degraded" : "healthy") : "not running"}`,
     `pending=${status.pending} dead=${status.dead} failures=${status.consecutiveFailures}`,
     `oldest_pending_ms=${status.oldestPendingAgeMs} last_verified_ms=${status.lastVerifiedAtMs ?? "never"}`,
+    `capture_observed=${capture.observed} translated=${capture.translated} enqueued=${capture.enqueued} enqueue_failed=${capture.enqueueFailed}`,
+    `capture_hook_registered=${capture.hookRegistered}`,
+    `capture_skipped=${JSON.stringify(capture.skipped)} last_observed_ms=${capture.lastObservedAtMs ?? "never"} last_enqueued_ms=${capture.lastEnqueuedAtMs ?? "never"}`,
   ].join("\n");
+}
+
+function captureStatus(
+  diagnostics: CaptureDiagnostics,
+): CaptureDiagnosticsSnapshot & { readonly hookRegistered: boolean } {
+  const registry = getGlobalPluginRegistry();
+  return {
+    ...diagnostics.snapshot(),
+    hookRegistered:
+      registry?.typedHooks.some(
+        (hook) => hook.pluginId === "musubi" && hook.hookName === "agent_end",
+      ) ?? false,
+  };
+}
+
+type CaptureDiagnosticOutcome =
+  | CaptureSkipReason
+  | "service_started"
+  | "enqueued"
+  | "enqueue_failed";
+
+function logCaptureDiagnostic(
+  api: OpenClawPluginApi,
+  diagnostics: CaptureDiagnostics,
+  outcome: CaptureDiagnosticOutcome,
+): void {
+  const capture = captureStatus(diagnostics);
+  api.logger.info(
+    `musubi: capture diagnostic outcome=${outcome} since_ms=${capture.sinceMs} hook_registered=${capture.hookRegistered} observed=${capture.observed} translated=${capture.translated} enqueued=${capture.enqueued} enqueue_failed=${capture.enqueueFailed} skipped=${JSON.stringify(capture.skipped)}`,
+  );
 }
 
 function errorMessage(error: unknown): string {

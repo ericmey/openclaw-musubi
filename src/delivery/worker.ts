@@ -28,6 +28,7 @@ type ReadbackResponse = {
   id?: unknown;
   namespace?: unknown;
   content?: unknown;
+  tags?: unknown;
 };
 
 export class DeliveryWorker {
@@ -210,6 +211,24 @@ export class DeliveryWorker {
       if (got.namespace !== row.namespace) mismatches.push("namespace");
       if (gotSha !== row.content_sha256) mismatches.push("content_sha256");
       if (mismatches.length > 0) {
+        // A content-only mismatch is the signature of a server-side
+        // dedup-merge, not a corrupted delivery: the episodic plane
+        // merges factually-compatible near-duplicates (cosine + a
+        // casefolded/whitespace-normalized compare) into the EXISTING
+        // row under a longer-wins content policy, unions the tags, and
+        // returns the existing object. The merged row therefore carries
+        // OUR receipt tag while its content legitimately differs from
+        // what we submitted. Byte-exact hashing can never accept that,
+        // so verify identity through the receipt tag instead of
+        // dead-lettering a delivery the server accepted.
+        if (this.#isDedupMerge(row, mismatches, got)) {
+          this.#outbox.markVerified(row.id, objectId);
+          this.#logger.info(
+            `musubi: verified ${row.namespace}/${objectId} via server dedup-merge ` +
+              "(canonical content differs from submission; receipt tag present)",
+          );
+          return;
+        }
         this.#outbox.markFailed(
           row.id,
           `readback identity mismatch: ${mismatches.join(", ")}`,
@@ -227,6 +246,19 @@ export class DeliveryWorker {
         grace404 || isRetryable(error),
       );
     }
+  }
+
+  /**
+   * True iff a readback mismatch is explained by a server dedup-merge:
+   * object_id and namespace both verified, ONLY the content hash
+   * differs, and the readback row's tags include this delivery's
+   * receipt tag (proof the server unioned our write into that row).
+   */
+  #isDedupMerge(row: DeliveryRow, mismatches: readonly string[], got: ReadbackResponse): boolean {
+    if (mismatches.length !== 1 || mismatches[0] !== "content_sha256") return false;
+    if (!Array.isArray(got.tags)) return false;
+    const receiptTag = `${RECEIPT_TAG_PREFIX}${row.idem_key}`;
+    return got.tags.some((tag) => tag === receiptTag);
   }
 }
 

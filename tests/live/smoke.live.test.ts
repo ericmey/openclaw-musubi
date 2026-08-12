@@ -36,9 +36,9 @@ const delivery = new DeliveryController({
 let root = "";
 
 describeLive("openclaw-musubi × live Musubi", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), "musubi-live-"));
-    delivery.start(join(root, "outbox.sqlite"));
+    await delivery.start(join(root, "outbox.sqlite"));
   });
 
   afterAll(async () => {
