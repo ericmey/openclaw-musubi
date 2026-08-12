@@ -172,7 +172,11 @@ export async function executeSearch(
     targets.map((t) =>
       client.post<MusubiRetrieveResponse>("/v1/retrieve", {
         body: {
-          namespace: t.baseNamespace,
+          // `namespace` is deliberately omitted for undefined targets:
+          // the server's family-discovery path filters unauthorized
+          // namespaces instead of 403ing the whole request the way an
+          // explicit wildcard does. See retrieval/targets.ts.
+          ...(t.namespace !== undefined ? { namespace: t.namespace } : {}),
           planes: [...t.planes],
           query_text: params.query,
           mode: "deep",

@@ -225,6 +225,72 @@ describe("DeliveryWorker", () => {
     outbox.close();
   });
 
+  it("verifies via server dedup-merge when readback content differs but carries the receipt tag", async () => {
+    // The episodic plane merges factually-compatible near-duplicates into
+    // the EXISTING row (longer-wins content, tag union) and returns that
+    // row's object_id. Readback content then legitimately differs from the
+    // submission, but the merged row carries our receipt tag — proof the
+    // delivery landed. This must verify, not dead-letter.
+    const fetch: FetchLike = async (_url, init) => {
+      if (init.method === "POST") {
+        return new Response(JSON.stringify({ object_id: "obj-1" }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          object_id: "obj-1",
+          namespace: item().namespace,
+          content: "Durable note, with the longer canonical casing the server kept.",
+          tags: ["source:test", "kind:episode", `openclaw:idem-${item().idempotencyKey}`],
+        }),
+        { status: 200 },
+      );
+    };
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    const worker = new DeliveryWorker({
+      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      config,
+      outbox,
+      logger,
+    });
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 1000);
+    expect(terminal).toMatchObject({ state: "verified", object_id: "obj-1" });
+    await worker.stop();
+    outbox.close();
+  });
+
+  it("still dead-letters a content mismatch whose readback lacks the receipt tag", async () => {
+    const fetch: FetchLike = async (_url, init) => {
+      if (init.method === "POST") {
+        return new Response(JSON.stringify({ object_id: "obj-1" }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          object_id: "obj-1",
+          namespace: item().namespace,
+          content: "entirely different content",
+          tags: ["source:test"],
+        }),
+        { status: 200 },
+      );
+    };
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    const worker = new DeliveryWorker({
+      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      config,
+      outbox,
+      logger,
+    });
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 1000);
+    expect(terminal?.state).toBe("dead");
+    expect(terminal?.last_error).toContain("content_sha256");
+    await worker.stop();
+    outbox.close();
+  });
+
   it("defers replay when receipt lookup is degraded, preventing a duplicate POST", async () => {
     let posts = 0;
     const fetch: FetchLike = async (_url, init) => {

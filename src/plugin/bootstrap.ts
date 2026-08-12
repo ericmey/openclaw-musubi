@@ -319,6 +319,17 @@ export function translateAgentEndEventWithReason(
     }
   }
   if (!assistant) return { ok: false, reason: "assistant_missing" };
+  if (user !== undefined && isHeartbeatPoll(user)) {
+    // Heartbeat polls are machine cadence, not lived experience. Before
+    // this filter one identical heartbeat turn was enqueued 300+ times
+    // per agent; the noise dominated `mode=recent`, forced the recall
+    // floor in tools/search.ts, and fed the synthesis mega-cluster.
+    // The assistant's reply to a heartbeat is derivative of memories
+    // that were already captured on their original turns — anything an
+    // agent genuinely wants to keep from a heartbeat goes through the
+    // explicit `musubi_remember` path, which does not pass through here.
+    return { ok: false, reason: "heartbeat_poll" };
+  }
   const content = user ? `User:\n${user}\n\nAssistant:\n${assistant}` : `Assistant:\n${assistant}`;
   const runId = typeof candidate.runId === "string" ? candidate.runId : undefined;
   const sessionId = typeof candidate.sessionId === "string" ? candidate.sessionId : "unknown";
@@ -331,6 +342,19 @@ export function translateAgentEndEventWithReason(
       agentId,
     },
   };
+}
+
+/**
+ * OpenClaw's heartbeat prompt as observed at the capture seam. Matched
+ * when the user turn IS the poll marker (exactly, or the marker plus
+ * trailing whitespace). Deliberately narrow: a human message that merely
+ * mentions the marker mid-text still captures.
+ */
+const HEARTBEAT_POLL_MARKER = "[OpenClaw heartbeat poll]";
+
+function isHeartbeatPoll(userText: string): boolean {
+  const trimmed = userText.trim();
+  return trimmed === HEARTBEAT_POLL_MARKER;
 }
 
 function extractRole(message: unknown): string | undefined {

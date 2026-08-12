@@ -64,10 +64,11 @@ describe("createRecallTool", () => {
   });
 
   it("test_recall_accepts_plane_filter_and_limit_parameters", async () => {
-    // Per Musubi ADR 0031, recall now uses a tenant-wide wildcard base
-    // (`<owner>/*`) for a single 2-segment cross-plane call. The mock
-    // returns the last scripted response for overflow calls if the
-    // implementation ever fans out further.
+    // Recall omits `namespace` so the server's family-discovery path
+    // enumerates the caller's identity family and FILTERS unauthorized
+    // namespaces. The previous `<owner>/*` wildcard (ADR 0031) ran the
+    // strict-authorization path: one out-of-scope stored namespace
+    // 403ed the entire retrieve.
     const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [] } }]);
     const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
 
@@ -78,9 +79,7 @@ describe("createRecallTool", () => {
       const body = JSON.parse(call.body!);
       expect(body.planes).toEqual(["curated"]);
       expect(body.limit).toBe(3);
-      // 2-segment wildcard base: `<owner>/*`.
-      expect(body.namespace.split("/")).toHaveLength(2);
-      expect(body.namespace.endsWith("/*")).toBe(true);
+      expect(body).not.toHaveProperty("namespace");
     }
 
     await tool.definition.execute("c2", { query: "x" });
@@ -88,8 +87,7 @@ describe("createRecallTool", () => {
     expect(defaultFanout.length).toBeGreaterThan(0);
     for (const call of defaultFanout) {
       const body = JSON.parse(call.body!);
-      expect(body.namespace.split("/")).toHaveLength(2);
-      expect(body.namespace.endsWith("/*")).toBe(true);
+      expect(body).not.toHaveProperty("namespace");
       expect(body.planes.length).toBeGreaterThanOrEqual(1);
       expect(body.limit).toBe(10);
     }
@@ -149,13 +147,12 @@ describe("createRecallTool", () => {
 
     await tool.definition.execute("c", { query: "x" });
 
-    // Per ADR 0031, recall fans tenant-wide via `<owner>/*` — `eric/*`
-    // here, regardless of which presence the agent maps to. Wildcard
-    // expansion on the server covers `eric/aoi/*` AND `eric/_shared/*`
-    // in one call.
+    // Recall omits `namespace` regardless of which presence the agent
+    // maps to: the server derives the identity family from the TOKEN's
+    // presence and enumerates `eric/aoi/*` AND `eric/_shared/*` itself,
+    // filtering (not rejecting) anything the token cannot read.
     for (const call of calls) {
-      const ns: string = JSON.parse(call.body!).namespace;
-      expect(ns).toBe("eric/*");
+      expect(JSON.parse(call.body!)).not.toHaveProperty("namespace");
     }
   });
 

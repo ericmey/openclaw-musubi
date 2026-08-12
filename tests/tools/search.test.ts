@@ -63,6 +63,10 @@ describe("createSearchTool — canonical musubi_search", () => {
     expect(body.mode).toBe("deep");
     expect(body.query_text).toBe("find the thing");
     expect(body.state_filter).toEqual(["provisional", "matured", "promoted"]);
+    // No `namespace`: reads ride the server's family-discovery path,
+    // which filters unauthorized namespaces instead of 403ing the whole
+    // request the way explicit-wildcard expansion does.
+    expect(body).not.toHaveProperty("namespace");
   });
 
   it("respects the planes filter when caller restricts", async () => {

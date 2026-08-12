@@ -1,14 +1,31 @@
 /**
- * Build the tenant-wide target for Musubi cross-plane retrieval.
+ * Build the family-wide target for Musubi cross-plane retrieval.
  *
- * Reads use one two-segment `<owner>/*` namespace with an explicit planes
- * list. Writes remain bound to concrete three-segment child namespaces.
+ * Reads OMIT the `namespace` field entirely and send only an explicit
+ * planes list. The server's AUTH-001 no-namespace path then enumerates
+ * every concrete namespace in the caller's identity family and — unlike
+ * an explicit namespace — FILTERS OUT unauthorized namespaces instead of
+ * rejecting the whole request.
+ *
+ * This is deliberate. The previous shape (`<owner>/*`) was expanded
+ * against live Qdrant payloads and ran with strict authorization: one
+ * stored namespace outside the token's scope (a pre-migration orphan
+ * row, a family-level `shared` concept namespace) made the server 403
+ * the ENTIRE retrieve, taking the agent's recall down with it. The
+ * no-namespace family path returns the authorized subset instead, so
+ * recall degrades to "what this token can see" rather than failing.
+ *
+ * Writes remain bound to concrete three-segment child namespaces.
  */
 
 import type { PresenceContext } from "../presence/resolver.js";
 
 export type RetrieveTarget = {
-  readonly baseNamespace: string;
+  /**
+   * Namespace to send on the retrieve body, or undefined to use the
+   * server-side family-discovery path (the default for reads).
+   */
+  readonly namespace: string | undefined;
   readonly planes: readonly string[];
 };
 
@@ -18,5 +35,5 @@ export function buildRetrieveTargets(
 ): RetrieveTarget[] {
   const owner = presence.presence.split("/", 1)[0];
   if (!owner) throw new Error(`invalid Musubi presence: ${presence.presence}`);
-  return [{ baseNamespace: `${owner}/*`, planes: [...planes] }];
+  return [{ namespace: undefined, planes: [...planes] }];
 }
