@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { OpenClawPluginApi } from "../../src/api.js";
-import { registerMusubi, translateAgentEndEvent } from "../../src/plugin/bootstrap.js";
+import {
+  registerMusubi,
+  translateAgentEndEvent,
+  translateAgentEndEventWithReason,
+} from "../../src/plugin/bootstrap.js";
 
 type Event =
   | { kind: "capability"; value: unknown }
@@ -178,5 +182,37 @@ describe("translateAgentEndEvent", () => {
       ],
     };
     expect(translateAgentEndEvent(event, "aoi")?.id).toBe(translateAgentEndEvent(event, "aoi")?.id);
+  });
+
+  it("skips heartbeat-poll turns with a dedicated diagnostics reason", () => {
+    // One identical heartbeat turn was enqueued 300+ times per agent
+    // before this filter; the noise dominated recent-mode retrieval and
+    // fed the synthesis mega-cluster. Machine cadence is not memory.
+    const result = translateAgentEndEventWithReason(
+      {
+        sessionId: "s1",
+        messages: [
+          { role: "user", content: "  [OpenClaw heartbeat poll] \n" },
+          { role: "assistant", content: "Caught up on the house. NO_REPLY" },
+        ],
+      },
+      "aoi",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("heartbeat_poll");
+  });
+
+  it("still captures a human turn that merely mentions the heartbeat marker", () => {
+    const translated = translateAgentEndEvent(
+      {
+        sessionId: "s1",
+        messages: [
+          { role: "user", content: "why does [OpenClaw heartbeat poll] show up in my logs?" },
+          { role: "assistant", content: "because the gateway polls each agent." },
+        ],
+      },
+      "aoi",
+    );
+    expect(translated?.content).toContain("why does [OpenClaw heartbeat poll] show up");
   });
 });

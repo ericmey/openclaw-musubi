@@ -102,6 +102,7 @@ describe("passive capture diagnostics", () => {
         event_not_object: 1,
         messages_missing: 1,
         assistant_missing: 1,
+        heartbeat_poll: 0,
       },
       lastObservedAtMs: expect.any(Number),
       lastEnqueuedAtMs: null,

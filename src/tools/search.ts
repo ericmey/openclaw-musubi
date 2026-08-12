@@ -172,7 +172,11 @@ export async function executeSearch(
     targets.map((t) =>
       client.post<MusubiRetrieveResponse>("/v1/retrieve", {
         body: {
-          namespace: t.baseNamespace,
+          // `namespace` is deliberately omitted for undefined targets:
+          // the server's family-discovery path filters unauthorized
+          // namespaces instead of 403ing the whole request the way an
+          // explicit wildcard does. See retrieval/targets.ts.
+          ...(t.namespace !== undefined ? { namespace: t.namespace } : {}),
           planes: [...t.planes],
           query_text: params.query,
           mode: "deep",
@@ -193,6 +197,7 @@ export async function executeSearch(
   const seen = new Set<string>();
   const merged: MusubiRetrieveRow[] = [];
   const warnings: string[] = [];
+  const expectedOwner = targets[0]?.expectedOwner;
   for (const result of settled) {
     if (result.status !== "fulfilled") {
       warnings.push(`one retrieval target failed: ${errorMessage(result.reason)}`);
@@ -202,6 +207,29 @@ export async function executeSearch(
       warnings.push(`Musubi warning: ${formatWarning(warning)}`);
     }
     for (const row of result.value.results ?? []) {
+      // IDENTITY BOUNDARY — the FIRST statement in the row loop, before
+      // any downstream content handling: the row is never merged,
+      // surfaced, or logged. (The HTTP body was necessarily JSON-parsed
+      // by the client before this loop; the guarantee is about what
+      // happens to row content after that.) No-namespace retrieval lets
+      // the server derive the identity family from the presented token
+      // alone, so a credential misbinding (this agent configured with
+      // another agent's token) would otherwise SUCCEED and hand this
+      // agent someone else's memories. A single foreign row fails the
+      // entire call — no partial success, no silent dropping — so
+      // operators see the misbinding instead of the agents quietly
+      // sharing a mind.
+      const rowNamespace = typeof row.namespace === "string" ? row.namespace : "";
+      const rowOwner = rowNamespace.split("/", 1)[0];
+      if (expectedOwner === undefined || rowOwner !== expectedOwner) {
+        return toolError(
+          `Musubi identity boundary violation: retrieval returned namespace ` +
+            `"${rowNamespace}" outside the configured identity "${expectedOwner ?? "?"}/…". ` +
+            `No results were surfaced. This means the token bound to this agent ` +
+            `authenticates a DIFFERENT identity family — check ` +
+            `plugins.entries.musubi.config.core.perAgentTokens for this agent before retrying.`,
+        );
+      }
       if (seen.has(row.object_id)) continue;
       seen.add(row.object_id);
       merged.push(row);
