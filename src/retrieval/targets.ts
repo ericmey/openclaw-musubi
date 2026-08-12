@@ -23,8 +23,9 @@
  * would succeed and return B-family memories to A. Callers MUST
  * therefore enforce the local identity boundary on the response: every
  * returned row's first namespace segment must equal `expectedOwner`,
- * and the first foreign row fails the whole call before any content is
- * parsed, surfaced, or logged. See ADR-0005.
+ * and the first foreign row fails the whole call before any downstream
+ * content handling — the row is never merged, surfaced, or logged.
+ * See ADR-0005.
  *
  * Writes remain bound to concrete three-segment child namespaces.
  */

@@ -207,15 +207,18 @@ export async function executeSearch(
       warnings.push(`Musubi warning: ${formatWarning(warning)}`);
     }
     for (const row of result.value.results ?? []) {
-      // IDENTITY BOUNDARY — checked FIRST, before this row's content is
-      // parsed, surfaced, or logged, and before it can enter `merged`.
-      // No-namespace retrieval lets the server derive the identity
-      // family from the presented token alone, so a credential
-      // misbinding (this agent configured with another agent's token)
-      // would otherwise SUCCEED and hand this agent someone else's
-      // memories. A single foreign row fails the entire call — no
-      // partial success, no silent dropping — so operators see the
-      // misbinding instead of the agents quietly sharing a mind.
+      // IDENTITY BOUNDARY — the FIRST statement in the row loop, before
+      // any downstream content handling: the row is never merged,
+      // surfaced, or logged. (The HTTP body was necessarily JSON-parsed
+      // by the client before this loop; the guarantee is about what
+      // happens to row content after that.) No-namespace retrieval lets
+      // the server derive the identity family from the presented token
+      // alone, so a credential misbinding (this agent configured with
+      // another agent's token) would otherwise SUCCEED and hand this
+      // agent someone else's memories. A single foreign row fails the
+      // entire call — no partial success, no silent dropping — so
+      // operators see the misbinding instead of the agents quietly
+      // sharing a mind.
       const rowNamespace = typeof row.namespace === "string" ? row.namespace : "";
       const rowOwner = rowNamespace.split("/", 1)[0];
       if (expectedOwner === undefined || rowOwner !== expectedOwner) {
@@ -224,7 +227,7 @@ export async function executeSearch(
             `"${rowNamespace}" outside the configured identity "${expectedOwner ?? "?"}/…". ` +
             `No results were surfaced. This means the token bound to this agent ` +
             `authenticates a DIFFERENT identity family — check ` +
-            `plugins.entries.musubi core.perAgentTokens for this agent before retrying.`,
+            `plugins.entries.musubi.config.core.perAgentTokens for this agent before retrying.`,
         );
       }
       if (seen.has(row.object_id)) continue;

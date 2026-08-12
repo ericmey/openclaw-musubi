@@ -153,7 +153,10 @@ describe("createSearchTool — canonical musubi_search", () => {
     const text = result.content[0]!.text;
     expect(text).toContain("identity boundary violation");
     expect(text).toContain("hana/hw-7ds/episodic");
-    expect(text).toContain("perAgentTokens");
+    // …with the EXACT config path an operator must edit — a partial
+    // token like "perAgentTokens" would pass against a pointer nobody
+    // can follow.
+    expect(text).toContain("plugins.entries.musubi.config.core.perAgentTokens");
     // 1. …with no foreign content anywhere in the surfaced output,
     expect(text).not.toContain(FOREIGN_SECRET);
     // …and NO PARTIAL SUCCESS: the valid own-family row is withheld too,

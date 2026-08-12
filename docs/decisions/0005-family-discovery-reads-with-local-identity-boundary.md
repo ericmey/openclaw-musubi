@@ -33,6 +33,9 @@ request succeeds and silently returns B's memories to A. Neither agent
 would know. For a system whose entire premise is that each agent's memory
 is *hers*, that is the worst available failure mode.
 
+(Config path for the binding in question:
+`plugins.entries.musubi.config.core.perAgentTokens` in `openclaw.json`.)
+
 ## Decision
 
 Reads omit `namespace` and use the server's family-discovery path — AND the
@@ -42,12 +45,15 @@ plugin enforces a local identity boundary on every response:
    the *configured* presence, the identity this client believes it is
    retrieving for.
 2. On response, every row's first namespace segment is checked against
-   `expectedOwner` BEFORE the row's content is parsed, surfaced, or
-   logged, and before it enters any merged result set.
+   `expectedOwner` BEFORE any downstream content handling — the row is
+   never merged, surfaced, or logged. (The HTTP body is necessarily
+   JSON-parsed by the client before the row loop runs; the guarantee is
+   about what happens to row content after that, not about parsing.)
 3. The FIRST foreign row fails the entire call with an identity-boundary
    error naming the foreign namespace (never its content). No partial
    success; no silent dropping of mismatched rows. The error directs
-   operators to the token binding (`core.perAgentTokens`).
+   operators to the exact token binding:
+   `plugins.entries.musubi.config.core.perAgentTokens`.
 
 The boundary is deliberately owner-level, not presence-level: cross-presence
 reads within one family (`rika/shared/concept` alongside `rika/hw-7ds/*`)
