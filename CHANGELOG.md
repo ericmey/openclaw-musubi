@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [Unreleased]
+
+### Bug Fixes
+
+* **config:** CLI preview contexts (`openclaw doctor`, `openclaw plugins inspect`) no longer report `invalid plugin config at /core/token: Expected string` for healthy configs. Token fields now accept OpenClaw's exact unresolved `SecretRef` shape (`{ source: "env" | "file" | "exec", provider, id }`); with unresolved refs the plugin logs one info line and registers nothing (inactive preview by design). Malformed references (unknown `source`, missing `provider`/`id`, extra properties) still fail registration loudly, and `${...}` placeholder strings remain a hard refusal. ([#55](https://github.com/ericmey/openclaw-musubi/pull/55))
+
 ## [2.0.5](https://github.com/ericmey/openclaw-musubi/compare/v2.0.4...v2.0.5) (2026-08-12)
 
 

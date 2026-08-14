@@ -1,30 +1,38 @@
 import { type Static, Type } from "@sinclair/typebox";
 
 /**
- * An UNRESOLVED SecretRef, exactly as authored in `openclaw.json` — any
- * `source` (`exec`, `env`, …), discriminated only by the `source` key.
- * `provider` and `id` are modeled explicitly for the common exec/provider
- * shape but stay optional, and additional properties are allowed, because
- * source kinds carry different fields and the plugin never interprets a
- * ref — it only needs to recognize one.
+ * An UNRESOLVED SecretRef, exactly as authored in `openclaw.json`, mirroring
+ * OpenClaw's own contract verbatim (`src/config/types.secrets.d.ts`):
  *
- * The gateway materializes these to strings before plugin bootstrap (via the
- * manifest's `configContracts.secretInputs.paths`), so at runtime the token
- * fields are plain strings. CLI preview contexts — `openclaw doctor`,
- * `openclaw plugins inspect` — do NOT run secret resolution and hand the
- * plugin the raw authored objects. The schema must accept that shape or every
- * doctor run reports "invalid plugin config at /core/token: Expected string"
- * nine times for a config that is perfectly healthy in the gateway.
- * Registration detects the unresolved shape and degrades quietly instead
- * (see `secretsMaterialized` in plugin/bootstrap.ts).
+ *   type SecretRefSource = "env" | "file" | "exec";
+ *   type SecretRef = { source: SecretRefSource; provider: string; id: string };
+ *
+ * The mirror is deliberately EXACT — closed `source` set, all three fields
+ * required, no additional properties. A malformed object such as
+ * `{"source":"typo"}` is NOT an unresolved secret; it is an invalid config
+ * and must fail registration loudly, exactly like any other schema
+ * violation. Admitting it would convert broken configuration into
+ * healthy-looking inert degradation (plugin "loaded", zero tools), which is
+ * the silent-failure class this codebase exists to refuse.
+ *
+ * The gateway materializes legitimate refs to strings before plugin
+ * bootstrap (via the manifest's `configContracts.secretInputs.paths`), so at
+ * runtime the token fields are plain strings. CLI preview contexts —
+ * `openclaw doctor`, `openclaw plugins inspect` — do NOT run secret
+ * resolution and hand the plugin the raw authored objects. The schema must
+ * accept that (legitimate) shape or every doctor run reports "invalid
+ * plugin config at /core/token: Expected string" nine times for a config
+ * that is perfectly healthy in the gateway. Registration detects the
+ * unresolved shape and degrades quietly instead (see `secretsMaterialized`
+ * in plugin/bootstrap.ts).
  */
 export const SecretRefSchema = Type.Object(
   {
-    source: Type.String(),
-    provider: Type.Optional(Type.String()),
-    id: Type.Optional(Type.String()),
+    source: Type.Union([Type.Literal("env"), Type.Literal("file"), Type.Literal("exec")]),
+    provider: Type.String(),
+    id: Type.String(),
   },
-  { additionalProperties: true },
+  { additionalProperties: false },
 );
 
 const TokenValue = Type.Union([Type.String(), SecretRefSchema]);

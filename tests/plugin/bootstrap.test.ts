@@ -89,6 +89,56 @@ describe("registerMusubi", () => {
     expect(api.logger.error).not.toHaveBeenCalled();
   });
 
+  it("fails LOUDLY on malformed SecretRef shapes — never inert degradation", () => {
+    // Yua's blocking finding on #55: a shape-loose ref schema let
+    // {"source":"typo"} through, and `plugins inspect --runtime` then
+    // reported Musubi as loaded with zero tools — invalid configuration
+    // converted into healthy-looking inert degradation. Only OpenClaw's
+    // exact SecretRef contract (source env|file|exec; provider + id
+    // required; nothing extra) may degrade; everything else throws the
+    // same loud validation error as any other config bug.
+    const { api, events } = makeApi();
+    const base = { presence: { defaultId: "eric/openclaw" } };
+    const malformed: unknown[] = [
+      { source: "typo", provider: "onepassword", id: "musubi-hw-7ds-hana" }, // unknown source
+      { source: "exec" }, // missing provider + id
+      { source: "exec", provider: "onepassword" }, // missing id
+      { source: "exec", provider: "onepassword", id: "x", extra: true }, // additional property
+      { provider: "onepassword", id: "x" }, // missing source entirely
+    ];
+    for (const token of malformed) {
+      expect(
+        () =>
+          registerMusubi({
+            api,
+            rawConfig: { ...base, core: { baseUrl: "https://musubi.test", token } },
+          }),
+        `should throw for ${JSON.stringify(token)}`,
+      ).toThrow(/invalid plugin config/u);
+    }
+    expect(events).toHaveLength(0);
+    expect(api.logger.info).not.toHaveBeenCalled();
+  });
+
+  it("degrades quietly for every LEGITIMATE unresolved source: env, file, exec", () => {
+    for (const source of ["env", "file", "exec"] as const) {
+      const { api, events } = makeApi();
+      const registered = registerMusubi({
+        api,
+        rawConfig: {
+          core: {
+            baseUrl: "https://musubi.test",
+            token: { source, provider: "default", id: "MUSUBI_TOKEN" },
+          },
+          presence: { defaultId: "eric/openclaw" },
+        },
+      });
+      expect(registered, `source=${source}`).toBeNull();
+      expect(events, `source=${source}`).toHaveLength(0);
+      expect(api.logger.info, `source=${source}`).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("still hard-refuses ${...} placeholder STRINGS (the 1.0 401 root cause)", () => {
     const { api } = makeApi();
     expect(() => registerMusubi({ api, rawConfig: config("${MUSUBI_TOKEN}") })).toThrow(
