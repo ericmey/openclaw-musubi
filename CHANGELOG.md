@@ -6,11 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
-## [Unreleased]
+## [2.0.6](https://github.com/ericmey/openclaw-musubi/compare/v2.0.5...v2.0.6) (2026-08-14)
+
 
 ### Bug Fixes
 
-* **config:** CLI preview contexts (`openclaw doctor`, `openclaw plugins inspect`) no longer report `invalid plugin config at /core/token: Expected string` for healthy configs. Token fields now accept OpenClaw's exact unresolved `SecretRef` shape (`{ source: "env" | "file" | "exec", provider, id }`); with unresolved refs the plugin logs one info line and registers nothing (inactive preview by design). Malformed references (unknown `source`, missing or blank/whitespace-only `provider`/`id`, extra properties) still fail registration loudly, as do blank token strings, and `${...}` placeholder strings remain a hard refusal. ([#55](https://github.com/ericmey/openclaw-musubi/pull/55))
+* **config:** CLI preview contexts (`openclaw doctor`, `openclaw plugins inspect`) no longer report `invalid plugin config at /core/token: Expected string` for healthy configs. Token fields now accept OpenClaw's exact unresolved `SecretRef` shape (`{ source: "env" | "file" | "exec", provider, id }`); with unresolved refs the plugin logs one info line and registers nothing (inactive preview by design). Malformed references (unknown `source`, missing or blank/whitespace-only `provider`/`id`, extra properties) still fail registration loudly, as do blank token strings, and `${...}` placeholder strings remain a hard refusal. ([#55](https://github.com/ericmey/openclaw-musubi/issues/55)) ([864742c](https://github.com/ericmey/openclaw-musubi/commit/864742c29d630f5aeaa588cd6dccb3baa3eb8c9e))
 
 ## [2.0.5](https://github.com/ericmey/openclaw-musubi/compare/v2.0.4...v2.0.5) (2026-08-12)
 
