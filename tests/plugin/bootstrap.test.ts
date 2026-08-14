@@ -64,11 +64,11 @@ function config(token = "mbi_test") {
 describe("registerMusubi", () => {
   it("degrades to one info line when token secrets are unresolved SecretRefs (CLI preview)", () => {
     // `openclaw doctor` / `plugins inspect` hand the plugin the AUTHORED
-    // config — exec SecretRefs unresolved, because only the gateway
-    // materializes them before bootstrap. That is a healthy config, not an
-    // invalid one: register must return null quietly (no capability, no
-    // tools, no capture hook, no thrown "Expected string") instead of
-    // printing nine register errors per doctor run.
+    // config — SecretRefs of any source (exec, env, …) unresolved, because
+    // only the gateway materializes them before bootstrap. That is a
+    // healthy config, not an invalid one: register must return null quietly
+    // (no capability, no tools, no capture hook, no thrown "Expected
+    // string") instead of printing nine register errors per doctor run.
     const { api, events } = makeApi();
     const secretRef = { source: "exec", provider: "onepassword", id: "musubi-hw-7ds-hana" };
     const raw = {
@@ -91,9 +91,9 @@ describe("registerMusubi", () => {
 
   it("still hard-refuses ${...} placeholder STRINGS (the 1.0 401 root cause)", () => {
     const { api } = makeApi();
-    expect(() =>
-      registerMusubi({ api, rawConfig: config("${MUSUBI_TOKEN}") }),
-    ).toThrow(/unresolved secret placeholder/);
+    expect(() => registerMusubi({ api, rawConfig: config("${MUSUBI_TOKEN}") })).toThrow(
+      /unresolved secret placeholder/,
+    );
   });
 
   it("registers one exclusive capability, native aliases, service, status, and capture hook", () => {

@@ -61,9 +61,10 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
   const authored = validateConfig(options.rawConfig);
   warnDeprecatedConfig(api, authored);
   if (!secretsMaterialized(authored)) {
-    // CLI preview (doctor / plugins inspect): exec SecretRefs are only
-    // materialized before GATEWAY bootstrap. One calm line, no tools, no
-    // capture hook — and no error for a config the gateway loads fine.
+    // CLI preview (doctor / plugins inspect): SecretRefs of any source
+    // (exec, env, …) are only materialized before GATEWAY bootstrap. One
+    // calm line, no tools, no capture hook — and no error for a config
+    // the gateway loads fine.
     api.logger.info(
       "musubi: token secrets are unresolved SecretRefs in this context (CLI preview; " +
         "the gateway materializes them at bootstrap) — memory tools inactive in this process",
@@ -248,7 +249,7 @@ function validateConfig(rawConfig: unknown): AuthoredMusubiConfig {
 /**
  * True iff every token field arrived as a resolved string.
  *
- * The gateway materializes exec SecretRefs before plugin bootstrap, so in
+ * The gateway materializes SecretRefs (any source) before plugin bootstrap, so in
  * the process that matters this is always true. CLI preview contexts
  * (`openclaw doctor`, `openclaw plugins inspect`) skip exec resolution and
  * hand us the authored `{source, provider, id}` objects — a healthy config,

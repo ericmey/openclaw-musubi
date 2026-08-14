@@ -1,12 +1,17 @@
 import { type Static, Type } from "@sinclair/typebox";
 
 /**
- * An UNRESOLVED exec SecretRef, exactly as authored in `openclaw.json`.
+ * An UNRESOLVED SecretRef, exactly as authored in `openclaw.json` — any
+ * `source` (`exec`, `env`, …), discriminated only by the `source` key.
+ * `provider` and `id` are modeled explicitly for the common exec/provider
+ * shape but stay optional, and additional properties are allowed, because
+ * source kinds carry different fields and the plugin never interprets a
+ * ref — it only needs to recognize one.
  *
  * The gateway materializes these to strings before plugin bootstrap (via the
  * manifest's `configContracts.secretInputs.paths`), so at runtime the token
  * fields are plain strings. CLI preview contexts — `openclaw doctor`,
- * `openclaw plugins inspect` — do NOT run exec secret resolution and hand the
+ * `openclaw plugins inspect` — do NOT run secret resolution and hand the
  * plugin the raw authored objects. The schema must accept that shape or every
  * doctor run reports "invalid plugin config at /core/token: Expected string"
  * nine times for a config that is perfectly healthy in the gateway.
@@ -16,6 +21,8 @@ import { type Static, Type } from "@sinclair/typebox";
 export const SecretRefSchema = Type.Object(
   {
     source: Type.String(),
+    provider: Type.Optional(Type.String()),
+    id: Type.Optional(Type.String()),
   },
   { additionalProperties: true },
 );
