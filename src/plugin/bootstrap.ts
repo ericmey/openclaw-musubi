@@ -12,7 +12,7 @@ import {
   getProcessCaptureDiagnostics,
 } from "../capture/diagnostics.js";
 import type { CaptureEvent } from "../capture/translate.js";
-import { type MusubiConfig, MusubiConfigSchema } from "../config.js";
+import { type AuthoredMusubiConfig, type MusubiConfig, MusubiConfigSchema } from "../config.js";
 import { DeliveryController } from "../delivery/controller.js";
 import { formatDoctor, runDeepDoctor } from "../doctor.js";
 import { MusubiClient } from "../musubi/client.js";
@@ -56,10 +56,21 @@ export type AgentEndTranslation =
  * happens before any capability is advertised so loader diagnostics cannot
  * report a configured provider whose credentials are still placeholders.
  */
-export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
+export function registerMusubi(options: RegisterOptions): RegisteredMusubi | null {
   const { api } = options;
-  const config = validateConfig(options.rawConfig);
-  warnDeprecatedConfig(api, config);
+  const authored = validateConfig(options.rawConfig);
+  warnDeprecatedConfig(api, authored);
+  if (!secretsMaterialized(authored)) {
+    // CLI preview (doctor / plugins inspect): exec SecretRefs are only
+    // materialized before GATEWAY bootstrap. One calm line, no tools, no
+    // capture hook — and no error for a config the gateway loads fine.
+    api.logger.info(
+      "musubi: token secrets are unresolved SecretRefs in this context (CLI preview; " +
+        "the gateway materializes them at bootstrap) — memory tools inactive in this process",
+    );
+    return null;
+  }
+  const config: MusubiConfig = authored;
   const client = new MusubiClient({
     baseUrl: config.core.baseUrl,
     token: config.core.token,
@@ -197,7 +208,7 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi {
   return { config, delivery, captureDiagnostics };
 }
 
-function warnDeprecatedConfig(api: OpenClawPluginApi, config: MusubiConfig): void {
+function warnDeprecatedConfig(api: OpenClawPluginApi, config: AuthoredMusubiConfig): void {
   if (config.supplement) {
     api.logger.warn(
       "musubi: config.supplement is deprecated and ignored by the first-class provider",
@@ -215,20 +226,42 @@ function warnDeprecatedConfig(api: OpenClawPluginApi, config: MusubiConfig): voi
   }
 }
 
-function validateConfig(rawConfig: unknown): MusubiConfig {
+function validateConfig(rawConfig: unknown): AuthoredMusubiConfig {
   if (!Value.Check(MusubiConfigSchema, rawConfig)) {
     const detail = [...Value.Errors(MusubiConfigSchema, rawConfig)][0];
     const where = detail ? ` at ${detail.path || "<root>"}: ${detail.message}` : "";
     throw new Error(`musubi: invalid plugin config${where}`);
   }
-  const config = rawConfig as MusubiConfig;
+  const config = rawConfig as AuthoredMusubiConfig;
   const secrets = [config.core.token, ...Object.values(config.core.perAgentTokens ?? {})];
-  if (secrets.some((value) => /\$\{[^}]+\}/u.test(value))) {
+  // `${...}` placeholder STRINGS are a config-authoring bug (the 1.0 root
+  // cause of the house-wide empty Musubi) and stay a hard refusal.
+  // SecretRef OBJECTS are a different case — see secretsMaterialized.
+  if (secrets.some((value) => typeof value === "string" && /\$\{[^}]+\}/u.test(value))) {
     throw new Error(
       "musubi: unresolved secret placeholder in core token configuration; refusing to load",
     );
   }
   return config;
+}
+
+/**
+ * True iff every token field arrived as a resolved string.
+ *
+ * The gateway materializes exec SecretRefs before plugin bootstrap, so in
+ * the process that matters this is always true. CLI preview contexts
+ * (`openclaw doctor`, `openclaw plugins inspect`) skip exec resolution and
+ * hand us the authored `{source, provider, id}` objects — a healthy config,
+ * not an invalid one. Callers degrade quietly instead of throwing the
+ * "Expected string" register error that used to print nine times per
+ * doctor run against a perfectly working gateway.
+ */
+function secretsMaterialized(config: AuthoredMusubiConfig): config is MusubiConfig {
+  if (typeof config.core.token !== "string") return false;
+  for (const value of Object.values(config.core.perAgentTokens ?? {})) {
+    if (typeof value !== "string") return false;
+  }
+  return true;
 }
 
 function buildMemoryPrompt(availableTools: Set<string>): string[] {
