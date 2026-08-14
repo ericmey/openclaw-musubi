@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.6](https://github.com/ericmey/openclaw-musubi/compare/v2.0.5...v2.0.6) (2026-08-14)
+
+
+### Bug Fixes
+
+* **config:** tolerate unresolved SecretRefs in CLI preview contexts ([#55](https://github.com/ericmey/openclaw-musubi/issues/55)) ([864742c](https://github.com/ericmey/openclaw-musubi/commit/864742c29d630f5aeaa588cd6dccb3baa3eb8c9e))
+
 ## [Unreleased]
 
 ### Bug Fixes
