@@ -24,7 +24,7 @@ type JsonSchemaNode = {
   patternProperties?: Record<string, JsonSchemaNode>;
   required?: string[];
   items?: JsonSchemaNode;
-  anyOf?: Array<{ const?: unknown }>;
+  anyOf?: Array<JsonSchemaNode & { const?: unknown }>;
   enum?: unknown[];
   minimum?: number;
   maximum?: number;
@@ -96,7 +96,17 @@ describe("schema parity: src/config.ts ↔ openclaw.plugin.json", () => {
       const tbType = tbPaths.get(path);
       if (AUTHORED_SECRET_INPUT_PATHS.has(path)) {
         expect(manType, `manifest SecretInput type at ${path}`).toEqual(["string", "object"]);
-        expect(tbType, `runtime resolved type at ${path}`).toEqual("string");
+        // Contract change (2026-08-14): the runtime schema now ALSO admits the
+        // authored SecretRef object at secret-input paths. CLI preview
+        // contexts (doctor / plugins inspect) skip exec resolution and hand
+        // the plugin unresolved refs; rejecting them printed nine bogus
+        // "Expected string" register errors per doctor run. Bootstrap's
+        // secretsMaterialized guard keeps the RUNTIME consumers string-only.
+        const tbNode = get(typeboxSchema, path.split("."));
+        const unionMembers = new Set((tbNode.anyOf ?? []).map((m) => m.type));
+        expect(unionMembers, `runtime union members at ${path}`).toEqual(
+          new Set(["string", "object"]),
+        );
         continue;
       }
       expect(tbType, `type mismatch at ${path || "<root>"}`).toEqual(manType);
@@ -119,7 +129,9 @@ describe("schema parity: src/config.ts ↔ openclaw.plugin.json", () => {
     expect(
       (manifestPerAgentTokens.additionalProperties as JsonSchemaNode | undefined)?.type,
     ).toEqual(["string", "object"]);
-    expect(typeboxPerAgentTokens.patternProperties?.["^(.*)$"]?.type).toBe("string");
+    const perAgentValue = typeboxPerAgentTokens.patternProperties?.["^(.*)$"];
+    const perAgentUnion = new Set((perAgentValue?.anyOf ?? []).map((m) => m.type));
+    expect(perAgentUnion).toEqual(new Set(["string", "object"]));
   });
 
   it("test_manifest_and_typebox_enum_members_match", () => {

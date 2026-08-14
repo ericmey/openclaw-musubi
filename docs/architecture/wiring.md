@@ -85,16 +85,33 @@ npm test
 ```
 
 On OpenClaw 2026.7.1, CLI bootstrap validates plugin config before the
-`--allow-exec` prepared-secret snapshot is applied. A deployment that correctly
-stores `SecretRef` objects can therefore fail `plugins inspect`, `doctor`, and
-plugin CLI commands with `Expected string` even while the gateway materializes
-the same fields and runs successfully. Until OpenClaw fixes that ordering,
-gateway startup diagnostics, `musubi.status`, and the receiving Musubi API are
-the authoritative installed-path proof; do not replace structured secret refs
-with plaintext or `${...}` strings to make the CLI green.
+`--allow-exec` prepared-secret snapshot is applied, so CLI preview contexts
+(`plugins inspect`, `doctor`, plugin CLI commands) hand the plugin the
+AUTHORED config with token fields still as `SecretRef` objects. As of 2.0.6
+the plugin handles that context explicitly instead of erroring:
 
-Once OpenClaw prepares secrets before CLI plugin bootstrap, these commands are
-the intended operator surface:
+- A **legitimate** unresolved ref — exactly OpenClaw's contract,
+  `{ source: "env" | "file" | "exec", provider, id }` — degrades to a single
+  info line ("CLI preview … memory tools inactive in this process") and
+  registers nothing. No `Expected string` error; the config is healthy and
+  the gateway materializes it normally.
+- A **malformed** ref (unknown `source`, missing or blank/whitespace-only
+  `provider`/`id` — OpenClaw requires both to `trim()` non-empty — or extra
+  properties) still fails registration loudly, like any other invalid
+  config. Blank token *strings* are refused the same way. Malformed configuration must never present as a healthy loaded
+  plugin with zero tools.
+- `${...}` placeholder *strings* remain a hard refusal (the 1.0 house-wide
+  401 root cause).
+
+In a CLI preview the plugin therefore shows as loaded-but-inactive by
+design; gateway startup diagnostics, `musubi.status`, and the receiving
+Musubi API remain the authoritative installed-path proof. Do not replace
+structured secret refs with plaintext or `${...}` strings to make the CLI
+show active tools.
+
+These commands are the operator surface (fully active in gateway context;
+inactive-by-design in CLI preview until OpenClaw prepares secrets before CLI
+plugin bootstrap):
 
 ```bash
 openclaw plugins inspect musubi --runtime --json

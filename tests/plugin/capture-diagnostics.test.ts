@@ -81,10 +81,21 @@ function makeApi() {
   };
 }
 
+/**
+ * These tests always register with resolved string tokens, so a null
+ * return (the CLI-preview degraded path) would be a test bug — assert it
+ * away once here instead of optional-chaining at every use site.
+ */
+function registerResolved(options: Parameters<typeof registerMusubi>[0]) {
+  const registered = registerMusubi(options);
+  if (!registered) throw new Error("expected resolved registration, got degraded null");
+  return registered;
+}
+
 describe("passive capture diagnostics", () => {
   it("counts bounded skip reasons without recording message content", async () => {
     const { api, getHandler, logger } = makeApi();
-    const registered = registerMusubi({ api, rawConfig: config() });
+    const registered = registerResolved({ api, rawConfig: config() });
     const handler = getHandler();
 
     await handler(null, {});
@@ -119,7 +130,7 @@ describe("passive capture diagnostics", () => {
 
   it("distinguishes disabled capture from translation failures", async () => {
     const { api, getHandler } = makeApi();
-    const registered = registerMusubi({
+    const registered = registerResolved({
       api,
       rawConfig: config({ completedTurns: false }),
     });
@@ -136,7 +147,7 @@ describe("passive capture diagnostics", () => {
 
   it("dispatches through OpenClaw's real harness side-effect path and reaches durable enqueue", async () => {
     const { api, getHandler, getService } = makeApi();
-    const registered = registerMusubi({ api, rawConfig: config() });
+    const registered = registerResolved({ api, rawConfig: config() });
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-hook-runner-"));
     roots.push(stateDir);
     const service = getService();
@@ -191,8 +202,8 @@ describe("passive capture diagnostics", () => {
   it("routes a per-run hook instance through the process delivery authority", async () => {
     const primary = makeApi();
     const perRun = makeApi();
-    const primaryRegistration = registerMusubi({ api: primary.api, rawConfig: config() });
-    const perRunRegistration = registerMusubi({ api: perRun.api, rawConfig: config() });
+    const primaryRegistration = registerResolved({ api: primary.api, rawConfig: config() });
+    const perRunRegistration = registerResolved({ api: perRun.api, rawConfig: config() });
     expect(perRunRegistration.captureDiagnostics).toBe(primaryRegistration.captureDiagnostics);
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-shared-delivery-"));
     roots.push(stateDir);
@@ -228,7 +239,7 @@ describe("passive capture diagnostics", () => {
     const perRun = makeApi();
     registerMusubi({ api: first.api, rawConfig: config() });
     const secondRegistration = registerMusubi({ api: second.api, rawConfig: config() });
-    const perRunRegistration = registerMusubi({ api: perRun.api, rawConfig: config() });
+    const perRunRegistration = registerResolved({ api: perRun.api, rawConfig: config() });
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-replaced-delivery-"));
     roots.push(stateDir);
     await first.getService().start({ stateDir });

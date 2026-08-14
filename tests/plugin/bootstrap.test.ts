@@ -62,6 +62,106 @@ function config(token = "mbi_test") {
 }
 
 describe("registerMusubi", () => {
+  it("degrades to one info line when token secrets are unresolved SecretRefs (CLI preview)", () => {
+    // `openclaw doctor` / `plugins inspect` hand the plugin the AUTHORED
+    // config — SecretRefs of any source (exec, env, …) unresolved, because
+    // only the gateway materializes them before bootstrap. That is a
+    // healthy config, not an invalid one: register must return null quietly
+    // (no capability, no tools, no capture hook, no thrown "Expected
+    // string") instead of printing nine register errors per doctor run.
+    const { api, events } = makeApi();
+    const secretRef = { source: "exec", provider: "onepassword", id: "musubi-hw-7ds-hana" };
+    const raw = {
+      core: {
+        baseUrl: "https://musubi.test",
+        token: secretRef,
+        perAgentTokens: { hana: secretRef },
+      },
+      presence: { defaultId: "eric/openclaw" },
+    };
+
+    const registered = registerMusubi({ api, rawConfig: raw });
+
+    expect(registered).toBeNull();
+    expect(events).toHaveLength(0);
+    expect(api.logger.info).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.logger.info).mock.calls[0]![0]).toContain("CLI preview");
+    expect(api.logger.error).not.toHaveBeenCalled();
+  });
+
+  it("fails LOUDLY on malformed SecretRef shapes — never inert degradation", () => {
+    // Yua's blocking finding on #55: a shape-loose ref schema let
+    // {"source":"typo"} through, and `plugins inspect --runtime` then
+    // reported Musubi as loaded with zero tools — invalid configuration
+    // converted into healthy-looking inert degradation. Only OpenClaw's
+    // exact SecretRef contract (source env|file|exec; provider + id
+    // required; nothing extra) may degrade; everything else throws the
+    // same loud validation error as any other config bug.
+    const { api, events } = makeApi();
+    const base = { presence: { defaultId: "eric/openclaw" } };
+    const malformed: unknown[] = [
+      { source: "typo", provider: "onepassword", id: "musubi-hw-7ds-hana" }, // unknown source
+      { source: "exec" }, // missing provider + id
+      { source: "exec", provider: "onepassword" }, // missing id
+      { source: "exec", provider: "onepassword", id: "x", extra: true }, // additional property
+      { provider: "onepassword", id: "x" }, // missing source entirely
+      // OpenClaw requires provider/id to trim() non-empty (round-2 finding):
+      { source: "env", provider: "", id: "" }, // empty strings
+      { source: "env", provider: "  ", id: "\t\n" }, // whitespace-only
+      { source: "exec", provider: "onepassword", id: "   " }, // one blank field
+    ];
+    for (const token of malformed) {
+      expect(
+        () =>
+          registerMusubi({
+            api,
+            rawConfig: { ...base, core: { baseUrl: "https://musubi.test", token } },
+          }),
+        `should throw for ${JSON.stringify(token)}`,
+      ).toThrow(/invalid plugin config/u);
+    }
+    expect(events).toHaveLength(0);
+    expect(api.logger.info).not.toHaveBeenCalled();
+  });
+
+  it("degrades quietly for every LEGITIMATE unresolved source: env, file, exec", () => {
+    for (const source of ["env", "file", "exec"] as const) {
+      const { api, events } = makeApi();
+      const registered = registerMusubi({
+        api,
+        rawConfig: {
+          core: {
+            baseUrl: "https://musubi.test",
+            token: { source, provider: "default", id: "MUSUBI_TOKEN" },
+          },
+          presence: { defaultId: "eric/openclaw" },
+        },
+      });
+      expect(registered, `source=${source}`).toBeNull();
+      expect(events, `source=${source}`).toHaveLength(0);
+      expect(api.logger.info, `source=${source}`).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("hard-refuses blank/whitespace-only token STRINGS (materialized-blank cousin)", () => {
+    // If a blank ref field ever slips through host-side materialization,
+    // the plugin receives "" as a plain string — schema-valid, and it
+    // would register fully with an empty bearer (401s at runtime). Refuse
+    // it as loudly as the ${...} placeholder class.
+    const { api, events } = makeApi();
+    for (const token of ["", "   ", "\t\n"]) {
+      expect(() => registerMusubi({ api, rawConfig: config(token) })).toThrow(/blank token/u);
+    }
+    expect(events).toHaveLength(0);
+  });
+
+  it("still hard-refuses ${...} placeholder STRINGS (the 1.0 401 root cause)", () => {
+    const { api } = makeApi();
+    expect(() => registerMusubi({ api, rawConfig: config("${MUSUBI_TOKEN}") })).toThrow(
+      /unresolved secret placeholder/,
+    );
+  });
+
   it("registers one exclusive capability, native aliases, service, status, and capture hook", () => {
     const { api, events } = makeApi();
     registerMusubi({ api, rawConfig: config() });
