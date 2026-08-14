@@ -95,9 +95,10 @@ the plugin handles that context explicitly instead of erroring:
   info line ("CLI preview … memory tools inactive in this process") and
   registers nothing. No `Expected string` error; the config is healthy and
   the gateway materializes it normally.
-- A **malformed** ref (unknown `source`, missing `provider`/`id`, extra
+- A **malformed** ref (unknown `source`, missing or blank/whitespace-only
+  `provider`/`id` — OpenClaw requires both to `trim()` non-empty — or extra
   properties) still fails registration loudly, like any other invalid
-  config. Malformed configuration must never present as a healthy loaded
+  config. Blank token *strings* are refused the same way. Malformed configuration must never present as a healthy loaded
   plugin with zero tools.
 - `${...}` placeholder *strings* remain a hard refusal (the 1.0 house-wide
   401 root cause).

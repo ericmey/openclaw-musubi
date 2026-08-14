@@ -243,6 +243,13 @@ function validateConfig(rawConfig: unknown): AuthoredMusubiConfig {
       "musubi: unresolved secret placeholder in core token configuration; refusing to load",
     );
   }
+  // Blank/whitespace-only token STRINGS are equally a hard refusal: they
+  // arise when a blank ref field slips through host-side materialization,
+  // and a client running with an empty bearer is the 401-shaped cousin of
+  // the inert-degradation class (#55 round 2) — loud beats quietly broken.
+  if (secrets.some((value) => typeof value === "string" && value.trim().length === 0)) {
+    throw new Error("musubi: blank token in core token configuration; refusing to load");
+  }
   return config;
 }
 

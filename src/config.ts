@@ -26,11 +26,22 @@ import { type Static, Type } from "@sinclair/typebox";
  * unresolved shape and degrades quietly instead (see `secretsMaterialized`
  * in plugin/bootstrap.ts).
  */
+/**
+ * OpenClaw 2026.7.1 additionally requires `provider` and `id` to contain at
+ * least one non-whitespace character (`value.provider.trim().length > 0`,
+ * same for `id`). The `\S` pattern is the JSON-schema equivalent of that
+ * trim check: it admits exactly the strings whose `trim()` is non-empty.
+ * Without it, `{"source":"env","provider":"","id":""}` degraded quietly —
+ * the loader exits 0 and reports Musubi loaded with zero tools, the same
+ * inert-failure class as the unknown-source case (Yua, #55 round 2).
+ */
+const NonBlankString = Type.String({ pattern: "\\S" });
+
 export const SecretRefSchema = Type.Object(
   {
     source: Type.Union([Type.Literal("env"), Type.Literal("file"), Type.Literal("exec")]),
-    provider: Type.String(),
-    id: Type.String(),
+    provider: NonBlankString,
+    id: NonBlankString,
   },
   { additionalProperties: false },
 );

@@ -105,6 +105,10 @@ describe("registerMusubi", () => {
       { source: "exec", provider: "onepassword" }, // missing id
       { source: "exec", provider: "onepassword", id: "x", extra: true }, // additional property
       { provider: "onepassword", id: "x" }, // missing source entirely
+      // OpenClaw requires provider/id to trim() non-empty (round-2 finding):
+      { source: "env", provider: "", id: "" }, // empty strings
+      { source: "env", provider: "  ", id: "\t\n" }, // whitespace-only
+      { source: "exec", provider: "onepassword", id: "   " }, // one blank field
     ];
     for (const token of malformed) {
       expect(
@@ -137,6 +141,18 @@ describe("registerMusubi", () => {
       expect(events, `source=${source}`).toHaveLength(0);
       expect(api.logger.info, `source=${source}`).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it("hard-refuses blank/whitespace-only token STRINGS (materialized-blank cousin)", () => {
+    // If a blank ref field ever slips through host-side materialization,
+    // the plugin receives "" as a plain string — schema-valid, and it
+    // would register fully with an empty bearer (401s at runtime). Refuse
+    // it as loudly as the ${...} placeholder class.
+    const { api, events } = makeApi();
+    for (const token of ["", "   ", "\t\n"]) {
+      expect(() => registerMusubi({ api, rawConfig: config(token) })).toThrow(/blank token/u);
+    }
+    expect(events).toHaveLength(0);
   });
 
   it("still hard-refuses ${...} placeholder STRINGS (the 1.0 401 root cause)", () => {

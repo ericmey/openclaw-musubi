@@ -72,64 +72,69 @@ describe("OpenClaw loader acceptance", () => {
     });
   }, 20_000);
 
-  it("reports a MALFORMED SecretRef as a registration failure through the real loader — never inert", () => {
-    // Yua's blocking repro on #55, inverted into a regression: with a
-    // shape-loose ref schema, `plugins inspect musubi --runtime --json`
-    // exited 0 and reported Musubi as loaded with no tools, hooks, or
-    // services — invalid configuration presenting as healthy inert
-    // degradation. The exact-shape schema must surface it as a loud
-    // registration failure instead.
-    const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-malformed-ref-"));
-    roots.push(stateDir);
-    const configPath = join(stateDir, "openclaw.json");
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        plugins: {
-          allow: ["musubi"],
-          load: { paths: [repoRoot] },
-          slots: { memory: "musubi" },
-          entries: {
-            musubi: {
-              enabled: true,
-              hooks: { allowConversationAccess: true },
-              config: {
-                core: {
-                  baseUrl: "https://musubi.invalid",
-                  token: { source: "typo" },
+  it("reports MALFORMED SecretRefs as registration failures through the real loader — never inert", () => {
+    // Yua's blocking repros on #55, inverted into regressions. Round 1:
+    // {"source":"typo"} passed a shape-loose schema and `plugins inspect
+    // musubi --runtime --json` exited 0 reporting Musubi loaded with no
+    // tools, hooks, or services. Round 2: same inert failure via
+    // {"source":"env","provider":"","id":""} — OpenClaw requires
+    // provider/id to trim() non-empty, and bare Type.String() admitted
+    // blanks. Both must surface as loud registration failures.
+    const cases: Array<{ label: string; token: unknown }> = [
+      { label: "unknown-source", token: { source: "typo" } },
+      { label: "blank-provider-id", token: { source: "env", provider: "", id: "" } },
+    ];
+    const openclawEntry = resolve(repoRoot, "node_modules/.bin/openclaw");
+
+    for (const { label, token } of cases) {
+      const stateDir = mkdtempSync(join(tmpdir(), `openclaw-musubi-malformed-${label}-`));
+      roots.push(stateDir);
+      const configPath = join(stateDir, "openclaw.json");
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          plugins: {
+            allow: ["musubi"],
+            load: { paths: [repoRoot] },
+            slots: { memory: "musubi" },
+            entries: {
+              musubi: {
+                enabled: true,
+                hooks: { allowConversationAccess: true },
+                config: {
+                  core: { baseUrl: "https://musubi.invalid", token },
+                  presence: { defaultId: "loader/test" },
                 },
-                presence: { defaultId: "loader/test" },
               },
             },
           },
-        },
-      }),
-    );
+        }),
+      );
 
-    const openclawEntry = resolve(repoRoot, "node_modules/.bin/openclaw");
-    const result = spawnSync(
-      openclawEntry,
-      ["plugins", "inspect", "musubi", "--runtime", "--json"],
-      {
-        cwd: repoRoot,
-        env: {
-          HOME: stateDir,
-          PATH: process.env.PATH ?? "",
-          OPENCLAW_CONFIG_PATH: configPath,
-          OPENCLAW_STATE_DIR: stateDir,
-          NO_COLOR: "1",
+      const result = spawnSync(
+        openclawEntry,
+        ["plugins", "inspect", "musubi", "--runtime", "--json"],
+        {
+          cwd: repoRoot,
+          env: {
+            HOME: stateDir,
+            PATH: process.env.PATH ?? "",
+            OPENCLAW_CONFIG_PATH: configPath,
+            OPENCLAW_STATE_DIR: stateDir,
+            NO_COLOR: "1",
+          },
+          encoding: "utf8",
         },
-        encoding: "utf8",
-      },
-    );
+      );
 
-    // The loader must SURFACE the failure: the register error is visible in
-    // the inspect output, and the runtime must not present an agent_end
-    // capture hook for a plugin whose config was rejected.
-    const combined = `${result.stdout}\n${result.stderr}`;
-    expect(combined).toMatch(/invalid plugin config/iu);
-    expect(result.stdout).not.toContain('"agent_end"');
-  }, 20_000);
+      // The loader must SURFACE the failure: the register error is visible
+      // in the inspect output, and the runtime must not present an
+      // agent_end capture hook for a plugin whose config was rejected.
+      const combined = `${result.stdout}\n${result.stderr}`;
+      expect(combined, `case=${label}`).toMatch(/invalid plugin config/iu);
+      expect(result.stdout, `case=${label}`).not.toContain('"agent_end"');
+    }
+  }, 40_000);
 
   it("materializes declared SecretRefs before plugin bootstrap in the real gateway runtime", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-secrets-"));
