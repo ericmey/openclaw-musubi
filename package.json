@@ -93,5 +93,8 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
+  },
+  "overrides": {
+    "undici": "8.9.0"
   }
 }
