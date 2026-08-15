@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.7](https://github.com/ericmey/openclaw-musubi/compare/v2.0.6...v2.0.7) (2026-08-14)
+
+
+### Bug Fixes
+
+* **deps:** override transitive undici to 8.9.0 (5 GHSA alerts, dev-scope) ([#57](https://github.com/ericmey/openclaw-musubi/issues/57)) ([1740bad](https://github.com/ericmey/openclaw-musubi/commit/1740badedf206ec36174caf18a24cfdea2fd62ac))
+
 ## [2.0.6](https://github.com/ericmey/openclaw-musubi/compare/v2.0.5...v2.0.6) (2026-08-14)
 
 
