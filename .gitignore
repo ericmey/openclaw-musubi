@@ -10,3 +10,4 @@ coverage/
 .idea/
 *.tsbuildinfo
 .vitest-cache/
+.claude/worktrees/
