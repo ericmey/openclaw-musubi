@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.8](https://github.com/ericmey/openclaw-musubi/compare/v2.0.7...v2.0.8) (2026-09-20)
+
+
+### Bug Fixes
+
+* **capture:** keep oversized turns instead of dead-lettering them ([bbca6f5](https://github.com/ericmey/openclaw-musubi/commit/bbca6f5c1e5f8f22120cdeb6a23bf6cbfe6d608d))
+* **capture:** replace unpaired surrogates when slicing to the byte ceiling ([3bdb2b5](https://github.com/ericmey/openclaw-musubi/commit/3bdb2b5d8ae7418faeff8255d418e595f6385ed2))
+* **client,recent:** address Copilot review on [#64](https://github.com/ericmey/openclaw-musubi/issues/64) ([6cacdd5](https://github.com/ericmey/openclaw-musubi/commit/6cacdd540c30981ac1b2127eee3c301a2f391d53))
+* **client:** honor caller cancellation, bound Retry-After to the server window ([5824138](https://github.com/ericmey/openclaw-musubi/commit/5824138ee7e884c0f850a4ba76cb080629c598f8))
+* **delivery:** backfill died_at_ms on every migration pass ([ec99cbe](https://github.com/ericmey/openclaw-musubi/commit/ec99cbef009806300660f3c720456df737a47823))
+* **delivery:** dead-letter unknown failures, stop latching degraded forever ([3d01ed5](https://github.com/ericmey/openclaw-musubi/commit/3d01ed5469dab39e37772694d4ac5c19481046df))
+* **deps:** clear 8 dev-scope GHSA advisories (fast-uri, hono, vitest) ([1972e13](https://github.com/ericmey/openclaw-musubi/commit/1972e133d575b1e926915483d10fb1b53ae792fa))
+* **presence:** remove unreachable env-var substitution ([cc9f694](https://github.com/ericmey/openclaw-musubi/commit/cc9f69499f2253d30cf6750965864228c9f4cf55))
+* **recent:** use server-side recent mode so filters cannot miss matches ([7e6c13f](https://github.com/ericmey/openclaw-musubi/commit/7e6c13f1e432519b5f058b23093ef49e4210ed03))
+* **search:** bound date-enrichment fan-out, surface truncated content ([371c1e3](https://github.com/ericmey/openclaw-musubi/commit/371c1e3da9e364e8d305145ffe34ee18ee0f4ba3))
+
 ## [2.0.7](https://github.com/ericmey/openclaw-musubi/compare/v2.0.6...v2.0.7) (2026-08-14)
 
 
