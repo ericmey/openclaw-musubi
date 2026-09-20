@@ -300,23 +300,48 @@ function registerTools(
   >(
     create: (ctx: { agentId?: string }) => T,
     name: string,
+    aliasOf?: string,
   ) => {
     const toolFactory = (ctx: { agentId?: string }) => {
       const definition = create(ctx).definition;
-      return { ...definition, label: name, name };
+      return {
+        ...definition,
+        description: aliasOf
+          ? `${definition.description} ${aliasNote(name, aliasOf)}`
+          : definition.description,
+        label: name,
+        name,
+      };
     };
     api.registerTool(toolFactory as Parameters<OpenClawPluginApi["registerTool"]>[0], {
       names: [name],
     });
   };
 
+  // `memory_*` are OpenClaw's provider-neutral names for the same three
+  // operations `musubi_*` expose. Both sets are declared in
+  // openclaw.plugin.json § contracts.tools, so neither can be withdrawn
+  // without a major version; what they CAN stop doing is presenting as six
+  // independent capabilities to a model that has no way to tell them apart.
   factory((ctx) => createSearchTool({ client, config, agentId: ctx.agentId }), "musubi_search");
-  factory((ctx) => createSearchTool({ client, config, agentId: ctx.agentId }), "memory_search");
+  factory(
+    (ctx) => createSearchTool({ client, config, agentId: ctx.agentId }),
+    "memory_search",
+    "musubi_search",
+  );
   factory((ctx) => createRecentTool({ client, config, agentId: ctx.agentId }), "musubi_recent");
   factory((ctx) => createGetTool({ client, config, agentId: ctx.agentId }), "musubi_get");
-  factory((ctx) => createGetTool({ client, config, agentId: ctx.agentId }), "memory_get");
+  factory(
+    (ctx) => createGetTool({ client, config, agentId: ctx.agentId }),
+    "memory_get",
+    "musubi_get",
+  );
   factory((ctx) => createRememberTool({ delivery, agentId: ctx.agentId }), "musubi_remember");
-  factory((ctx) => createRememberTool({ delivery, agentId: ctx.agentId }), "memory_store");
+  factory(
+    (ctx) => createRememberTool({ delivery, agentId: ctx.agentId }),
+    "memory_store",
+    "musubi_remember",
+  );
   factory((ctx) => createThinkTool({ client, config, agentId: ctx.agentId }), "musubi_think");
   factory(
     (ctx) =>
@@ -327,6 +352,13 @@ function registerTools(
         logger: { warn: (message) => api.logger.warn(message) },
       }),
     "musubi_recall",
+  );
+}
+
+function aliasNote(name: string, aliasOf: string): string {
+  return (
+    `(\`${name}\` is the provider-neutral name for \`${aliasOf}\` — they are the same ` +
+    "operation against the same store. Call either one; calling both repeats the same work.)"
   );
 }
 
@@ -435,7 +467,7 @@ function formatStatus(
 ): string {
   return [
     `Musubi memory: ${status.running ? (status.degraded ? "degraded" : "healthy") : "not running"}`,
-    `pending=${status.pending} dead=${status.dead} failures=${status.consecutiveFailures}`,
+    `pending=${status.pending} dead=${status.dead} dead_recent=${status.recentDead} failures=${status.consecutiveFailures}`,
     `oldest_pending_ms=${status.oldestPendingAgeMs} last_verified_ms=${status.lastVerifiedAtMs ?? "never"}`,
     `capture_observed=${capture.observed} translated=${capture.translated} enqueued=${capture.enqueued} enqueue_failed=${capture.enqueueFailed}`,
     `capture_hook_registered=${capture.hookRegistered}`,
@@ -462,15 +494,44 @@ type CaptureDiagnosticOutcome =
   | "enqueued"
   | "enqueue_failed";
 
+/**
+ * Outcomes an operator needs to see unprompted. Everything else is per-turn
+ * cadence — it fired on EVERY `agent_end`, including every heartbeat skip, at
+ * `info`, each call also paying for a full `typedHooks` scan just to log a
+ * boolean. The counters remain available on demand via `/musubi-status`.
+ */
+const NOTABLE_CAPTURE_OUTCOMES = new Set<CaptureDiagnosticOutcome>([
+  "service_started",
+  "enqueue_failed",
+]);
+
 function logCaptureDiagnostic(
   api: OpenClawPluginApi,
   diagnostics: CaptureDiagnostics,
   outcome: CaptureDiagnosticOutcome,
 ): void {
-  const capture = captureStatus(diagnostics);
-  api.logger.info(
-    `musubi: capture diagnostic outcome=${outcome} since_ms=${capture.sinceMs} hook_registered=${capture.hookRegistered} observed=${capture.observed} translated=${capture.translated} enqueued=${capture.enqueued} enqueue_failed=${capture.enqueueFailed} skipped=${JSON.stringify(capture.skipped)}`,
-  );
+  const notable = NOTABLE_CAPTURE_OUTCOMES.has(outcome);
+  if (!notable && !api.logger.debug) return;
+  // `hookRegistered` costs a registry scan, so it is resolved only for the
+  // lines that actually get emitted at operator level.
+  const capture = notable
+    ? captureStatus(diagnostics)
+    : { ...diagnostics.snapshot(), hookRegistered: undefined };
+  const line =
+    `musubi: capture diagnostic outcome=${outcome} since_ms=${capture.sinceMs} ` +
+    (capture.hookRegistered === undefined ? "" : `hook_registered=${capture.hookRegistered} `) +
+    `observed=${capture.observed} translated=${capture.translated} ` +
+    `enqueued=${capture.enqueued} enqueue_failed=${capture.enqueueFailed} ` +
+    `skipped=${JSON.stringify(capture.skipped)}`;
+  if (outcome === "enqueue_failed") {
+    api.logger.warn(line);
+    return;
+  }
+  if (notable) {
+    api.logger.info(line);
+    return;
+  }
+  api.logger.debug?.(line);
 }
 
 function errorMessage(error: unknown): string {

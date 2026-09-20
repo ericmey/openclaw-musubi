@@ -121,9 +121,12 @@ describe("passive capture diagnostics", () => {
     expect(JSON.stringify(registered.captureDiagnostics.snapshot())).not.toContain(
       "private prompt",
     );
-    expect(logger.info.mock.calls.flat().join("\n")).not.toContain("private prompt");
-    expect(logger.info).toHaveBeenCalledTimes(3);
-    expect(logger.info.mock.calls.flat().join("\n")).toMatch(
+    expect(logger.debug.mock.calls.flat().join("\n")).not.toContain("private prompt");
+    // Routine per-turn outcomes are debug-level; the operator channel stays
+    // clear for things that actually need attention.
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledTimes(3);
+    expect(logger.debug.mock.calls.flat().join("\n")).toMatch(
       /outcome=event_not_object[\s\S]*outcome=messages_missing[\s\S]*outcome=assistant_missing/u,
     );
   });
@@ -238,7 +241,7 @@ describe("passive capture diagnostics", () => {
     const second = makeApi();
     const perRun = makeApi();
     registerMusubi({ api: first.api, rawConfig: config() });
-    const secondRegistration = registerMusubi({ api: second.api, rawConfig: config() });
+    const secondRegistration = registerResolved({ api: second.api, rawConfig: config() });
     const perRunRegistration = registerResolved({ api: perRun.api, rawConfig: config() });
     const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-replaced-delivery-"));
     roots.push(stateDir);
