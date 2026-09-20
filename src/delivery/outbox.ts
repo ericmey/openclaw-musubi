@@ -54,6 +54,15 @@ const LEASE_TTL_MS = 120_000;
 const VERIFIED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEAD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /**
+ * Ceiling on a server-requested retry delay, kept separate from
+ * {@link DEAD_RETENTION_MS} on purpose: retention is how long a dead row
+ * stays inspectable, which has nothing to do with when a live row may next
+ * be attempted. Coupling them would silently reschedule a longer requested
+ * wait to 30 days. This bound exists only to keep `now + delay` inside a
+ * sane integer range for a hostile or misconfigured `Retry-After`.
+ */
+const MAX_RETRY_DELAY_MS = 7 * 24 * 60 * 60 * 1000;
+/**
  * How long a dead row keeps the provider marked `degraded`.
  *
  * Dead rows are retained for 30 days so an operator can still inspect what
@@ -302,7 +311,7 @@ export class DeliveryOutbox {
     const backoff = deterministicJitter(row.idem_key, attempts, base);
     const jitter =
       retryAfterMs !== undefined && Number.isFinite(retryAfterMs)
-        ? Math.max(backoff, Math.min(retryAfterMs, DEAD_RETENTION_MS))
+        ? Math.max(backoff, Math.min(retryAfterMs, MAX_RETRY_DELAY_MS))
         : backoff;
     this.#db
       .prepare(

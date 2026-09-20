@@ -185,6 +185,20 @@ describe("createRecentTool", () => {
     expect(result.content[0]?.text).not.toContain("content-x");
   });
 
+  it("rejects a malformed warnings field instead of throwing from it", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { mode: "recent", limit: 10, warnings: {}, results: [] } },
+    ]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    // Previously this passed the envelope gate and then threw a TypeError out
+    // of execute() from `.map()`, rather than returning a tool error.
+    const result = await tool.definition.execute("c", {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("unexpected envelope");
+  });
+
   it("rejects an envelope that is not a recent-mode response", async () => {
     const { fetch } = createMockFetch([
       { status: 200, body: { mode: "deep", limit: 10, warnings: [], results: [] } },

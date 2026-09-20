@@ -138,6 +138,14 @@ export class MusubiClient {
         throw error;
       }
 
+      // Cancellation during the wait must end the call, not merely shorten
+      // it: `stop()` gives the worker 3s and then the controller closes the
+      // outbox, so a loop that woke afterwards and took the AbortedError path
+      // would write to a closed database.
+      if (options.signal?.aborted) {
+        throw new AbortedError({ requestId, cause: error });
+      }
+
       let delayMs: number;
       if (error instanceof RateLimitError && error.retryAfterMs !== undefined) {
         // Hand a long `Retry-After` back to the caller rather than sleeping
@@ -152,7 +160,36 @@ export class MusubiClient {
         delayMs = nextDelayMs(attempt, this.#retry, this.#random);
       }
 
-      await this.#sleep(delayMs);
+      const cancelled = await this.#sleepUnlessAborted(delayMs, options.signal);
+      if (cancelled) {
+        throw new AbortedError({ requestId, cause: error });
+      }
+    }
+  }
+
+  /**
+   * Wait out a backoff, returning early (`true`) if the caller aborts.
+   *
+   * The listener is always removed: a long-lived external signal accumulating
+   * one listener per in-flight retry is its own leak.
+   */
+  async #sleepUnlessAborted(ms: number, signal: AbortSignal | undefined): Promise<boolean> {
+    if (!signal) {
+      await this.#sleep(ms);
+      return false;
+    }
+    if (signal.aborted) return true;
+    let onAbort: (() => void) | undefined;
+    try {
+      return await Promise.race([
+        this.#sleep(ms).then(() => false),
+        new Promise<boolean>((resolve) => {
+          onAbort = () => resolve(true);
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
     }
   }
 
