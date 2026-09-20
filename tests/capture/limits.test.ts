@@ -53,6 +53,28 @@ describe("sliceToUtf8Bytes", () => {
     expect(bytes(sliced)).toBe(4);
   });
 
+  it("replaces an isolated surrogate rather than emitting malformed UTF-16", () => {
+    // `for...of` yields an unpaired surrogate as its own single-unit char, so
+    // a naive prefix emits it verbatim — malformed UTF-16 that JSON carries
+    // to a server which then cannot encode it.
+    const lone = "\uD800x";
+    const sliced = sliceToUtf8Bytes(lone, 4);
+
+    expect(sliced).not.toMatch(/[\uD800-\uDFFF]/u);
+    expect(sliced).toBe("\uFFFDx");
+    // U+FFFD is what TextEncoder substitutes, so the budget math is unchanged.
+    expect(utf8ByteLength(lone)).toBe(bytes(lone));
+    expect(bytes(sliced)).toBe(bytes(lone));
+  });
+
+  it("keeps a well-formed pair intact while replacing a neighbouring lone half", () => {
+    const mixed = "\uD800😀";
+    const sliced = sliceToUtf8Bytes(mixed, 7);
+
+    expect(sliced).toBe("\uFFFD😀");
+    expect(sliced).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
+  });
+
   it("returns empty for a non-positive budget", () => {
     expect(sliceToUtf8Bytes("abc", 0)).toBe("");
     expect(sliceToUtf8Bytes("abc", -1)).toBe("");

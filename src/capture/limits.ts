@@ -45,22 +45,37 @@ function utf8CharLength(codePoint: number): number {
 /**
  * Longest prefix of `value` that fits in `maxBytes` UTF-8 bytes.
  *
- * Iterates by CODE POINT, so it can never split a multi-byte sequence or
- * leave a lone surrogate behind — either of which would corrupt the stored
- * memory and change its SHA-256 in ways the readback check would then
- * report as an identity mismatch.
+ * Iterates by CODE POINT, so it can never split a multi-byte sequence — which
+ * would corrupt the stored memory and change its SHA-256 into what the
+ * readback check reports as an identity mismatch.
+ *
+ * An UNPAIRED surrogate needs care of its own. `for...of` yields one as a
+ * lone single-unit char, so a naive prefix would emit it verbatim and hand
+ * malformed UTF-16 to `JSON.stringify` and then to a server that cannot
+ * encode it. Each is replaced with U+FFFD, which is exactly what
+ * `TextEncoder` does — so the substitution is byte-for-byte invisible to
+ * {@link utf8ByteLength} and the budget arithmetic stays exact.
  */
 export function sliceToUtf8Bytes(value: string, maxBytes: number): string {
   if (maxBytes <= 0) return "";
   let bytes = 0;
-  let end = 0;
+  const out: string[] = [];
   for (const char of value) {
-    const size = utf8CharLength(char.codePointAt(0) ?? 0);
+    const codePoint = char.codePointAt(0) ?? 0;
+    const size = utf8CharLength(codePoint);
     if (bytes + size > maxBytes) break;
     bytes += size;
-    end += char.length;
+    out.push(isUnpairedSurrogate(char, codePoint) ? "\uFFFD" : char);
   }
-  return value.slice(0, end);
+  return out.join("");
+}
+
+/**
+ * True for a surrogate code unit that `for...of` handed us on its own — a
+ * well-formed pair is yielded as a single two-unit char above U+FFFF.
+ */
+function isUnpairedSurrogate(char: string, codePoint: number): boolean {
+  return char.length === 1 && codePoint >= 0xd800 && codePoint <= 0xdfff;
 }
 
 export type CaptureTruncation = {
