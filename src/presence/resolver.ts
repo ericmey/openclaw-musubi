@@ -34,24 +34,16 @@ export type ResolveOptions = {
    * agent's identity must be cryptographically isolated.
    */
   readonly strict?: boolean;
-
-  /**
-   * Override for environment-variable lookup. Defaults to `process.env`. Tests
-   * inject a deterministic map.
-   */
-  readonly env?: Readonly<Record<string, string | undefined>>;
 };
 
 type PresenceConfig = Pick<MusubiConfig, "core" | "presence">;
-
-const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 export function resolvePresence(
   config: PresenceConfig,
   options: ResolveOptions = {},
 ): PresenceContext {
   const { core, presence } = config;
-  const { agentId, strict = false, env = process.env } = options;
+  const { agentId, strict = false } = options;
 
   const mappedPresence = agentId && presence.perAgent ? presence.perAgent[agentId] : undefined;
   const resolvedPresence = mappedPresence ?? presence.defaultId;
@@ -81,8 +73,14 @@ export function resolvePresence(
     );
   }
 
-  const rawToken = mappedToken ?? core.token;
-  const resolvedToken = applyEnvSubstitution(rawToken, env);
+  // Tokens arrive already materialized. `${VAR}` interpolation used to happen
+  // here, but registration hard-refuses any token string containing `${...}`
+  // (plugin/bootstrap.ts § validateConfig) precisely because an unresolved
+  // placeholder reaching the wire is the 401-shaped silent failure this
+  // plugin exists to refuse — so the substitution could never run, and if it
+  // had, a missing env var would have left the literal `${VAR}` as the bearer.
+  // Secret resolution belongs to OpenClaw's SecretRef contract.
+  const resolvedToken = mappedToken ?? core.token;
 
   if (!resolvedToken) {
     throw new PresenceResolutionError(
@@ -117,14 +115,4 @@ export function resolvePresence(
       ],
     },
   };
-}
-
-function applyEnvSubstitution(
-  raw: string,
-  env: Readonly<Record<string, string | undefined>>,
-): string {
-  return raw.replace(ENV_VAR_PATTERN, (match, name: string) => {
-    const value = env[name];
-    return value ?? match;
-  });
 }
