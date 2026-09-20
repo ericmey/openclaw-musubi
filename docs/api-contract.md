@@ -105,9 +105,28 @@ object id and namespace returned by search.
 
 ### Recent episodic activity
 
-`musubi_recent` calls `GET /v1/episodic?namespace=...&limit=...`, applies
-optional tags and time filters, then sorts timestamps client-side because the
-underlying page order is not a recency guarantee.
+`musubi_recent` calls `POST /v1/retrieve` with `mode="recent"` — the
+query-free recency pipeline — scoped to the presence's own episodic
+namespace, with `state_filter: ["provisional", "matured", "promoted"]`.
+
+`tags` (AND semantics) and `since` are SERVER-side filters in that mode, so
+they apply across the whole namespace rather than to one returned page. This
+is load-bearing, not incidental: the earlier `GET /v1/episodic` fallback
+filtered the page it got back, and that endpoint's page order is Qdrant
+scroll order rather than recency — so a filter could silently miss matches
+that simply were not on the page. A memory tool reporting "nothing" when the
+memory exists is the one failure this surface cannot have.
+
+`since` goes on the wire as epoch SECONDS; the server explicitly rejects ISO
+strings. The tool's own parameter stays ISO-8601 and converts.
+
+Recent rows carry `score_kind: "created_epoch"` — `score` IS the source
+timestamp — so recency ordering and display need no per-row date enrichment,
+unlike ranked retrieval.
+
+Rows the server flagged `content_truncated` are rendered with the cut marked
+and a pointer to `musubi_get`, in both recent and ranked results. A slice is
+never presented as the whole object.
 
 ## Deep operator proof
 
