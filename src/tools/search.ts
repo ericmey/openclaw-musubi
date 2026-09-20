@@ -89,40 +89,61 @@ type DateEnrichment = {
  * gave it the information to make. Enrichment is bounded by `limit` and each
  * failure degrades to "date unavailable" -- never to a guess, and never to
  * silently omitting the date, which is the state that caused this.
+ *
+ * Concurrency is capped at {@link DATE_ENRICHMENT_CONCURRENCY}: `limit` can be
+ * 50, and each of those GETs carries its own retry budget, so an unbounded
+ * fan-out turned one search against a struggling backend into a burst of
+ * hundreds of in-flight requests.
  */
+const DATE_ENRICHMENT_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (let index = next++; index < items.length; index = next++) {
+      results[index] = await mapper(items[index] as T);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function withDates(
   rows: readonly MusubiRetrieveRow[],
   client: MusubiClient,
   token: string,
 ): Promise<DateEnrichment> {
-  const enriched = await Promise.all(
-    rows.map(async (row) => {
-      const base = PLANE_PATH[row.plane];
-      if (!base) {
-        return {
-          row,
-          warning: `date metadata unavailable for unsupported plane ${row.plane} (${row.namespace}/${row.object_id})`,
-        };
-      }
-      try {
-        const full = await client.getWithQuery<{ created_at?: string; event_at?: string }>(
-          `${base}/${encodeURIComponent(row.object_id)}`,
-          { namespace: row.namespace },
-          { token },
-        );
-        // `created_at` is the lived/source chronology. Historical imports keep
-        // that original timestamp while `event_at` records the later ingestion
-        // lifecycle event. Prefer the source date so an old memory does not
-        // present itself as something that happened during tonight's import.
-        return { row: { ...row, created_at: full.created_at ?? full.event_at } };
-      } catch (err) {
-        return {
-          row,
-          warning: `date metadata unavailable for ${row.plane} ${row.namespace}/${row.object_id}: ${errorMessage(err)}`,
-        };
-      }
-    }),
-  );
+  const enriched = await mapWithConcurrency(rows, DATE_ENRICHMENT_CONCURRENCY, async (row) => {
+    const base = PLANE_PATH[row.plane];
+    if (!base) {
+      return {
+        row,
+        warning: `date metadata unavailable for unsupported plane ${row.plane} (${row.namespace}/${row.object_id})`,
+      };
+    }
+    try {
+      const full = await client.getWithQuery<{ created_at?: string; event_at?: string }>(
+        `${base}/${encodeURIComponent(row.object_id)}`,
+        { namespace: row.namespace },
+        { token },
+      );
+      // `created_at` is the lived/source chronology. Historical imports keep
+      // that original timestamp while `event_at` records the later ingestion
+      // lifecycle event. Prefer the source date so an old memory does not
+      // present itself as something that happened during tonight's import.
+      return { row: { ...row, created_at: full.created_at ?? full.event_at } };
+    } catch (err) {
+      return {
+        row,
+        warning: `date metadata unavailable for ${row.plane} ${row.namespace}/${row.object_id}: ${errorMessage(err)}`,
+      };
+    }
+  });
   return {
     rows: enriched.map((entry) => entry.row),
     warnings: enriched.flatMap((entry) => (entry.warning ? [entry.warning] : [])),
@@ -136,6 +157,14 @@ type MusubiRetrieveRow = {
   readonly content: string;
   readonly namespace: string;
   readonly title?: string | null;
+  /**
+   * The server slices oversized content and flags the cut (DQ-001). Rendering
+   * a slice as though it were the whole object invites the agent to speak
+   * about source it has not actually seen — the same class of error the score
+   * floor above exists to prevent.
+   */
+  readonly content_truncated?: boolean;
+  readonly content_length?: number;
 };
 
 type MusubiRetrieveResponse = {
@@ -288,6 +317,10 @@ function formatResults(rows: readonly DatedRow[]): string {
     const when = row.created_at ? row.created_at.slice(0, 10) : "date unavailable";
     lines.push(`[${row.plane}] (${when}) (score ${row.score.toFixed(2)}) ${label}`);
     lines.push(row.content);
+    if (row.content_truncated === true) {
+      const full = typeof row.content_length === "number" ? ` of ${row.content_length} chars` : "";
+      lines.push(`[content truncated${full} — use musubi_get for the full object]`);
+    }
     lines.push("");
   }
   return lines.join("\n").trimEnd();

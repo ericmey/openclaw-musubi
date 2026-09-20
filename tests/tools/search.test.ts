@@ -335,3 +335,43 @@ describe("recall contract — dates and the weak-match floor", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("musubi_search date enrichment", () => {
+  it("bounds the per-result fan-out", async () => {
+    const results = Array.from({ length: 50 }, (_, i) => ({
+      object_id: `obj-${i}`,
+      score: 0.9,
+      plane: "episodic",
+      content: `content ${i}`,
+      namespace: "eric/openclaw/episodic",
+    }));
+
+    let inFlight = 0;
+    let peak = 0;
+    const fetch: FetchLike = async (url) => {
+      if (url.includes("/v1/retrieve")) {
+        return new Response(JSON.stringify({ results, warnings: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return new Response(JSON.stringify({ created_at: "2026-09-19T00:00:00Z" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const tool = createSearchTool({ client: makeClient(fetch), config: makeConfig() });
+    const result = await tool.definition.execute("c", { query: "x", limit: 50 });
+
+    // Each enrichment GET carries its own retry budget, so an unbounded
+    // Promise.all turned one search against a struggling backend into a
+    // burst of hundreds of in-flight requests.
+    expect(peak).toBeLessThanOrEqual(6);
+    expect(result.content[0]?.text).toContain("2026-09-19");
+  });
+});
