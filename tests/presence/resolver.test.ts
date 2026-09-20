@@ -141,62 +141,21 @@ describe("resolvePresence", () => {
     });
   });
 
-  it("test_resolver_handles_env_var_substitution_in_tokens", () => {
+  it("passes materialized tokens through verbatim", () => {
+    // `${...}` interpolation is NOT the resolver's job and never was reachable:
+    // registration hard-refuses any token string containing a placeholder
+    // (see plugin/bootstrap.test.ts), because a placeholder reaching the wire
+    // is a silent 401. Secret resolution is OpenClaw's SecretRef contract.
     const config = makeConfig({
       core: {
         baseUrl: "https://musubi.test",
-        token: "${MUSUBI_TOKEN_DEFAULT}",
-        perAgentTokens: {
-          aoi: "${MUSUBI_TOKEN_AOI}",
-          rin: "no-substitution-here",
-          partial: "prefix-${MUSUBI_PART}-suffix",
-        },
-      },
-      presence: {
-        defaultId: "eric/openclaw",
-        perAgent: { aoi: "eric/aoi", rin: "eric/rin", partial: "eric/partial" },
-      },
-    });
-
-    const env = {
-      MUSUBI_TOKEN_DEFAULT: "expanded-default",
-      MUSUBI_TOKEN_AOI: "expanded-aoi",
-      MUSUBI_PART: "expanded-part",
-    };
-
-    const def = resolvePresence(config, { env });
-    const aoi = resolvePresence(config, { agentId: "aoi", env });
-    const rin = resolvePresence(config, { agentId: "rin", env });
-    const partial = resolvePresence(config, { agentId: "partial", env });
-
-    expect(def.token).toBe("expanded-default");
-    expect(aoi.token).toBe("expanded-aoi");
-    expect(rin.token).toBe("no-substitution-here");
-    expect(partial.token).toBe("prefix-expanded-part-suffix");
-  });
-
-  it("leaves unresolved env vars literal so misconfiguration is visible", () => {
-    const config = makeConfig({
-      core: { baseUrl: "https://musubi.test", token: "${MUSUBI_NOT_SET}" },
-    });
-
-    const ctx = resolvePresence(config, { env: {} });
-
-    expect(ctx.token).toBe("${MUSUBI_NOT_SET}");
-  });
-
-  it("expands lowercase and mixed-case env vars", () => {
-    const config = makeConfig({
-      core: {
-        baseUrl: "https://musubi.test",
-        token: "${my_token}",
-        perAgentTokens: { aoi: "${MUSUBI_TOKEN_AOI}" },
+        token: "default-token",
+        perAgentTokens: { aoi: "aoi-token" },
       },
       presence: { defaultId: "eric/openclaw", perAgent: { aoi: "eric/aoi" } },
     });
-    const env = { my_token: "lowercase-ok", MUSUBI_TOKEN_AOI: "uppercase-ok" };
 
-    expect(resolvePresence(config, { env }).token).toBe("lowercase-ok");
-    expect(resolvePresence(config, { agentId: "aoi", env }).token).toBe("uppercase-ok");
+    expect(resolvePresence(config).token).toBe("default-token");
+    expect(resolvePresence(config, { agentId: "aoi" }).token).toBe("aoi-token");
   });
 });
