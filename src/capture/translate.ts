@@ -7,6 +7,7 @@
  */
 
 import type { PresenceContext } from "../presence/resolver.js";
+import { truncateForEpisodicCapture } from "./limits.js";
 
 /**
  * Capture-eligible event from OpenClaw. Shape is intentionally narrow:
@@ -70,6 +71,8 @@ export type CanonicalCaptureBody = {
 
 export const TAG_SOURCE_PREFIX = "src:";
 export const TAG_REF_PREFIX = "ref:";
+/** Marks a row whose content this plugin cut to fit the episodic ceiling. */
+export const TAG_TRUNCATED = "openclaw:truncated";
 
 /**
  * Convert the plugin-internal rich capture payload into the narrow
@@ -85,6 +88,13 @@ export const TAG_REF_PREFIX = "ref:";
  * `metadata` is dropped today because every call site sends `{}`.
  * If a real need emerges the canonical `CaptureRequest` will grow
  * a field upstream and this translator flips.
+ *
+ * Content over Musubi's episodic ceiling is truncated here, with the cut
+ * marked in the body — see `capture/limits.ts` for why truncating beats
+ * losing the turn. This is the right seam for it: the delivery controller
+ * hashes exactly what this function returns, so the outbox's
+ * `content_sha256` matches the bytes the server stores and the readback
+ * identity check still holds.
  */
 export function toCanonicalCapture(payload: EpisodicCapturePayload): CanonicalCaptureBody {
   const tags = [
@@ -92,11 +102,12 @@ export function toCanonicalCapture(payload: EpisodicCapturePayload): CanonicalCa
     `${TAG_SOURCE_PREFIX}${payload.capture_source}`,
     `${TAG_REF_PREFIX}${payload.source_ref}`,
   ];
+  const fitted = truncateForEpisodicCapture(payload.content);
   return {
     namespace: payload.namespace,
-    content: payload.content,
+    content: fitted.content,
     importance: payload.importance,
-    tags,
+    tags: fitted.truncated ? [...tags, TAG_TRUNCATED] : tags,
   };
 }
 

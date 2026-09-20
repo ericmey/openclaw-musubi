@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { MusubiConfig } from "../../src/config.js";
+import { DeliveryController } from "../../src/delivery/controller.js";
 import { DeliveryOutbox, type EnqueueDelivery } from "../../src/delivery/outbox.js";
 import { DeliveryWorker } from "../../src/delivery/worker.js";
 import { MusubiClient } from "../../src/musubi/client.js";
@@ -344,5 +345,82 @@ describe("DeliveryWorker", () => {
     await worker.stop();
     expect(aborted).toBe(true);
     outbox.close();
+  });
+});
+
+describe("episodic ceiling at the delivery boundary", () => {
+  const bytes = (value: string) => new TextEncoder().encode(value).length;
+
+  it("enqueues a truncated capture whose sha matches the bytes it will send", () => {
+    const { outbox } = open();
+    const controller = new DeliveryController({
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: async () => new Response("{}", { status: 200 }),
+      }),
+      config,
+      logger,
+      createOutbox: () => outbox,
+    });
+
+    return (async () => {
+      await controller.start(join(mkdtempSync(join(tmpdir(), "musubi-ceiling-")), "o.sqlite"));
+      try {
+        const row = controller.enqueueCapture({
+          id: "oversize-turn",
+          agentId: "aoi",
+          content: "あ".repeat(20_000),
+        });
+
+        const stored = outbox.row(row.id);
+        expect(bytes(stored?.content ?? "")).toBeLessThanOrEqual(32_768);
+        // The worker posts `content` and verifies readback against
+        // `content_sha256`. If truncation happened anywhere downstream of the
+        // hash, every oversized capture would dead-letter as an identity
+        // mismatch instead of the 422 it used to dead-letter as.
+        expect(stored?.content_sha256).toBe(
+          createHash("sha256")
+            .update(stored?.content ?? "")
+            .digest("hex"),
+        );
+      } finally {
+        await controller.stop();
+      }
+    })();
+  });
+
+  it("refuses an oversized explicit remember instead of queueing a doomed row", async () => {
+    const { outbox } = open();
+    const controller = new DeliveryController({
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch: async () => new Response("{}", { status: 200 }),
+      }),
+      config,
+      logger,
+      createOutbox: () => outbox,
+    });
+    await controller.start(join(mkdtempSync(join(tmpdir(), "musubi-ceiling-")), "o.sqlite"));
+
+    try {
+      // An agent chose these words and can see the tool result, so a refusal
+      // it can act on beats silently storing something shorter — and beats a
+      // 422 dead-letter it would never be told about.
+      expect(() =>
+        controller.enqueueExplicit({
+          toolCallId: "call-big",
+          content: "a".repeat(40_000),
+          importance: 7,
+          topics: [],
+          idempotencyKey: "idem-big",
+        }),
+      ).toThrow(/32768.*Split it into/s);
+      expect(outbox.rowForIdempotency("idem-big")).toBeUndefined();
+      expect(outbox.health().pending).toBe(0);
+    } finally {
+      await controller.stop();
+    }
   });
 });

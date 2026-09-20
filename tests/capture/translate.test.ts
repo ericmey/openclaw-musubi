@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { EPISODIC_CONTENT_LIMIT_BYTES } from "../../src/capture/limits.js";
 import {
   type CaptureEvent,
   deriveIdempotencyKey,
+  TAG_TRUNCATED,
+  toCanonicalCapture,
   translateCaptureEvent,
 } from "../../src/capture/translate.js";
 import type { PresenceContext } from "../../src/presence/resolver.js";
@@ -92,5 +95,38 @@ describe("deriveIdempotencyKey", () => {
     const event: CaptureEvent = { id: "openclaw-mem-abc", content: "x" };
     expect(deriveIdempotencyKey(event)).toBe("openclaw-mirror:openclaw-mem-abc");
     expect(deriveIdempotencyKey(event)).toBe(deriveIdempotencyKey(event));
+  });
+});
+
+describe("toCanonicalCapture oversize handling", () => {
+  const bytes = (value: string) => new TextEncoder().encode(value).length;
+
+  it("fits an oversized turn under the server ceiling and tags the cut", () => {
+    const payload = translateCaptureEvent(
+      { id: "e1", content: "あ".repeat(20_000) },
+      presence,
+      fixedNow,
+    );
+
+    const body = toCanonicalCapture(payload);
+
+    // Musubi 422s a capture over 32768 UTF-8 bytes, and a 422 is terminal —
+    // so without this the whole turn dead-letters and the memory is lost.
+    expect(bytes(body.content)).toBeLessThanOrEqual(EPISODIC_CONTENT_LIMIT_BYTES);
+    expect(body.content).toContain("capture truncated by openclaw-musubi");
+    expect(body.tags).toContain(TAG_TRUNCATED);
+  });
+
+  it("leaves an ordinary turn and its tags alone", () => {
+    const payload = translateCaptureEvent(
+      { id: "e2", content: "a normal turn" },
+      presence,
+      fixedNow,
+    );
+
+    const body = toCanonicalCapture(payload);
+
+    expect(body.content).toBe("a normal turn");
+    expect(body.tags).not.toContain(TAG_TRUNCATED);
   });
 });

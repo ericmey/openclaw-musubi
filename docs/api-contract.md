@@ -50,6 +50,25 @@ The delivery boundary is local SQLite, not a successful network response:
 `401`, `403`, invalid write envelopes, and readback identity mismatches become
 durable `dead` rows. Retryable failures remain pending with bounded backoff.
 
+### Episodic content ceiling
+
+Musubi rejects a capture over 32768 UTF-8 bytes with `422 CONTENT_TOO_LARGE`,
+and a `422` is terminal — so an oversized turn dead-letters and the memory is
+gone. The plugin handles the two paths differently, because the reader is
+different:
+
+- **Passive capture** is truncated to fit, with the cut stated in the body and
+  the row tagged `openclaw:truncated`. Nobody is watching a completed turn to
+  notice a failure and retry it, so keeping most of the memory beats losing
+  all of it. Truncation happens before the outbox hashes the payload, so
+  `content_sha256` still matches the bytes the server stores.
+- **`musubi_remember` is refused** with the limit and a suggestion to split.
+  An agent chose those words and can see the tool result, so a refusal it can
+  act on beats silently storing something shorter than it asked for.
+
+The limit is measured in bytes, not characters: a 32k-character slice of
+non-ASCII text is still oversized.
+
 ## Retrieval
 
 ### Semantic search

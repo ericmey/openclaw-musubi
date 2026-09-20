@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-
+import { EPISODIC_CONTENT_LIMIT_BYTES, utf8ByteLength } from "../capture/limits.js";
 import type { CaptureEvent } from "../capture/translate.js";
 import {
   deriveIdempotencyKey,
@@ -138,6 +138,18 @@ export class DeliveryController {
     readonly idempotencyKey: string;
   }): DeliveryRow {
     const { config, outbox, worker } = this.#requireRuntime();
+    // Refuse rather than truncate. Unlike a passive turn capture, an agent
+    // chose these words and can see this tool's result — so a refusal it can
+    // act on beats silently storing something shorter than it asked for, and
+    // beats a 422 dead-letter it would never be told about.
+    const contentBytes = utf8ByteLength(options.content);
+    if (contentBytes > EPISODIC_CONTENT_LIMIT_BYTES) {
+      throw new Error(
+        `content is ${contentBytes} UTF-8 bytes; Musubi's episodic limit is ` +
+          `${EPISODIC_CONTENT_LIMIT_BYTES}. Nothing was stored. Split it into ` +
+          "several smaller remembers, one fact each.",
+      );
+    }
     const presence = resolvePresence(config, {
       agentId: options.agentId,
       strict: options.agentId !== undefined,
