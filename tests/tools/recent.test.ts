@@ -45,204 +45,170 @@ function makeClient(fetch: FetchLike) {
 }
 
 describe("createRecentTool", () => {
+  const EPOCH_2026_09_19 = Date.parse("2026-09-19T00:00:00Z") / 1000;
+  const EPOCH_2026_09_01 = Date.parse("2026-09-01T00:00:00Z") / 1000;
+
+  const recent = (rows: unknown[], warnings: unknown[] = []) => ({
+    status: 200,
+    body: { mode: "recent", limit: 10, warnings, results: rows },
+  });
+
+  const row = (id: string, epoch: number, extra: Record<string, unknown> = {}) => ({
+    object_id: id,
+    namespace: "eric/openclaw/episodic",
+    plane: "episodic",
+    score: epoch,
+    score_kind: "created_epoch",
+    content: `content-${id}`,
+    state: "provisional",
+    importance: 5,
+    provenance_score: null,
+    extra: { score_components: {}, lineage: {} },
+    ...extra,
+  });
+
+  const bodyOf = (calls: Array<{ body: string | undefined }>) =>
+    JSON.parse(calls[0]?.body ?? "{}") as Record<string, unknown>;
+
   it("registers as musubi_recent", () => {
-    const { fetch } = createMockFetch([{ status: 200, body: { items: [] } }]);
+    const { fetch } = createMockFetch([recent([])]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
     expect(tool.definition.name).toBe("musubi_recent");
     expect(tool.recommendedOptional).toBe(true);
   });
 
-  it("calls GET /v1/episodic with the presence's episodic namespace", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200, body: { items: [] } }]);
+  it("calls POST /v1/retrieve in recent mode for the presence's episodic namespace", async () => {
+    const { fetch, calls } = createMockFetch([recent([])]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
 
     await tool.definition.execute("call", { limit: 5 });
 
-    expect(calls[0]?.url).toBe(
-      "https://musubi.test/v1/episodic?namespace=eric%2Fopenclaw%2Fepisodic&limit=5",
-    );
-  });
-
-  it("orders results newest-first by event_at", async () => {
-    const { fetch } = createMockFetch([
-      {
-        status: 200,
-        body: {
-          items: [
-            {
-              object_id: "older",
-              namespace: "eric/openclaw/episodic",
-              content: "older capture",
-              event_at: "2026-04-28T10:00:00Z",
-            },
-            {
-              object_id: "newer",
-              namespace: "eric/openclaw/episodic",
-              content: "newer capture",
-              event_at: "2026-04-29T18:00:00Z",
-            },
-          ],
-        },
-      },
-    ]);
-    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
-
-    const result = await tool.definition.execute("c", {});
-
-    const text = result.content[0]!.text;
-    // Newer should appear before older in the rendered output.
-    const newerPos = text.indexOf("newer capture");
-    const olderPos = text.indexOf("older capture");
-    expect(newerPos).toBeGreaterThan(-1);
-    expect(olderPos).toBeGreaterThan(-1);
-    expect(newerPos).toBeLessThan(olderPos);
-  });
-
-  it("uses source created_at instead of later ingestion event_at for ordering and display", async () => {
-    const { fetch } = createMockFetch([
-      {
-        status: 200,
-        body: {
-          items: [
-            {
-              object_id: "imported-old",
-              content: "older lived event imported tonight",
-              created_at: "2026-07-23T10:00:00Z",
-              event_at: "2026-08-07T23:00:00Z",
-            },
-            {
-              object_id: "lived-later",
-              content: "later lived event",
-              created_at: "2026-07-24T10:00:00Z",
-              event_at: "2026-07-24T10:01:00Z",
-            },
-          ],
-        },
-      },
-    ]);
-    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
-
-    const text = (await tool.definition.execute("c", {})).content[0]!.text;
-
-    expect(text.indexOf("later lived event")).toBeLessThan(
-      text.indexOf("older lived event imported tonight"),
-    );
-    expect(text).toContain("[2026-07-23T10:00:00Z]");
-    expect(text).not.toContain("2026-08-07T23:00:00Z");
-  });
-
-  it("filters rows by tag — every listed tag must be present", async () => {
-    const { fetch } = createMockFetch([
-      {
-        status: 200,
-        body: {
-          items: [
-            {
-              object_id: "a",
-              content: "tagged",
-              tags: ["src:openclaw-agent-remember", "important"],
-              event_at: "2026-04-29T18:00:00Z",
-            },
-            {
-              object_id: "b",
-              content: "untagged",
-              tags: ["passive"],
-              event_at: "2026-04-29T17:00:00Z",
-            },
-          ],
-        },
-      },
-    ]);
-    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
-
-    const result = await tool.definition.execute("c", {
-      tags: ["src:openclaw-agent-remember"],
+    expect(calls[0]?.url).toBe("https://musubi.test/v1/retrieve");
+    expect(bodyOf(calls)).toMatchObject({
+      namespace: "eric/openclaw/episodic",
+      planes: ["episodic"],
+      mode: "recent",
+      limit: 5,
+      state_filter: ["provisional", "matured", "promoted"],
     });
-
-    const text = result.content[0]!.text;
-    expect(text).toContain("tagged");
-    expect(text).not.toContain("untagged");
   });
 
-  it("applies the since filter — rows older than `since` are excluded", async () => {
-    const { fetch } = createMockFetch([
-      {
-        status: 200,
-        body: {
-          items: [
-            {
-              object_id: "old",
-              content: "before since",
-              event_at: "2026-04-28T10:00:00Z",
-            },
-            {
-              object_id: "new",
-              content: "after since",
-              event_at: "2026-04-29T18:00:00Z",
-            },
-          ],
-        },
-      },
-    ]);
+  it("pushes the tag filter to the server rather than filtering a page in process", async () => {
+    const { fetch, calls } = createMockFetch([recent([])]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
 
-    const result = await tool.definition.execute("c", { since: "2026-04-29T00:00:00Z" });
+    await tool.definition.execute("c", { tags: ["src:openclaw-agent-remember", "important"] });
 
-    const text = result.content[0]!.text;
-    expect(text).toContain("after since");
-    expect(text).not.toContain("before since");
+    // Server-side AND semantics across the whole namespace. Filtering a
+    // scroll-ordered page client-side could miss matches that were simply
+    // not on the page — a memory tool must not report a false absence.
+    expect(bodyOf(calls).tags).toEqual(["src:openclaw-agent-remember", "important"]);
   });
 
-  it("applies since to source created_at, not a later ingestion event_at", async () => {
-    const { fetch } = createMockFetch([
-      {
-        status: 200,
-        body: {
-          items: [
-            {
-              object_id: "imported-old",
-              content: "old event imported after since",
-              created_at: "2026-07-23T10:00:00Z",
-              event_at: "2026-08-07T23:00:00Z",
-            },
-          ],
-        },
-      },
-    ]);
+  it("converts `since` to epoch seconds because the server rejects ISO strings", async () => {
+    const { fetch, calls } = createMockFetch([recent([])]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
 
-    const text = (await tool.definition.execute("c", { since: "2026-08-01T00:00:00Z" })).content[0]!
-      .text;
+    await tool.definition.execute("c", { since: "2026-09-19T00:00:00Z" });
 
-    expect(text).toContain("No recent activity");
-    expect(text).not.toContain("old event imported after since");
+    expect(bodyOf(calls).since).toBe(EPOCH_2026_09_19);
   });
 
-  it("rejects invalid `since` value with a clear tool error", async () => {
-    const { fetch } = createMockFetch([
-      { status: 200, body: { items: [{ object_id: "a", content: "x" }] } },
-    ]);
+  it("omits tags and since entirely when absent", async () => {
+    const { fetch, calls } = createMockFetch([recent([])]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    await tool.definition.execute("c", {});
+
+    const sent = bodyOf(calls);
+    expect(sent).not.toHaveProperty("tags");
+    expect(sent).not.toHaveProperty("since");
+  });
+
+  it("rejects an invalid `since` value with a clear tool error", async () => {
+    const { fetch, calls } = createMockFetch([recent([])]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
 
     const result = await tool.definition.execute("c", { since: "not-a-date" });
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("Invalid 'since'");
+    expect(calls).toHaveLength(0);
   });
 
-  it("returns a friendly empty-namespace message when no rows match", async () => {
-    const { fetch } = createMockFetch([{ status: 200, body: { items: [] } }]);
+  it("orders newest-first and renders the date from created_epoch", async () => {
+    const { fetch } = createMockFetch([
+      recent([row("older", EPOCH_2026_09_01), row("newer", EPOCH_2026_09_19)]),
+    ]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const text = (await tool.definition.execute("c", {})).content[0]?.text ?? "";
+
+    // Recent rows carry score_kind "created_epoch", so `score` IS the source
+    // timestamp — no per-row date enrichment needed.
+    expect(text).toContain("2026-09-19T00:00:00.000Z");
+    expect(text.indexOf("content-newer")).toBeLessThan(text.indexOf("content-older"));
+  });
+
+  it("flags server-truncated content instead of rendering a slice as the whole row", async () => {
+    const { fetch } = createMockFetch([
+      recent([row("big", EPOCH_2026_09_19, { content_truncated: true, content_length: 9001 })]),
+    ]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const text = (await tool.definition.execute("c", {})).content[0]?.text ?? "";
+
+    expect(text).toContain("content truncated of 9001 chars");
+    expect(text).toContain("musubi_get");
+  });
+
+  it("surfaces a degraded envelope's warnings", async () => {
+    const { fetch } = createMockFetch([recent([row("a", EPOCH_2026_09_19)], ["partial_scan"])]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const text = (await tool.definition.execute("c", {})).content[0]?.text ?? "";
+
+    expect(text).toContain("Retrieval warnings:");
+    expect(text).toContain("partial_scan");
+  });
+
+  it("fails closed on a row from outside the requested namespace", async () => {
+    const { fetch } = createMockFetch([
+      recent([{ ...row("x", EPOCH_2026_09_19), namespace: "someone-else/rin/episodic" }]),
+    ]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
 
     const result = await tool.definition.execute("c", {});
 
-    expect(result.isError).toBeFalsy();
-    expect(result.content[0]?.text).toContain("No recent activity");
-    expect(result.content[0]?.text).toContain("eric/openclaw/episodic");
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("identity boundary violation");
+    expect(result.content[0]?.text).not.toContain("content-x");
   });
 
-  it("surfaces backend error as a tool error string", async () => {
-    const { fetch } = createMockFetch([{ throw: new TypeError("fetch failed") }]);
+  it("rejects an envelope that is not a recent-mode response", async () => {
+    const { fetch } = createMockFetch([
+      { status: 200, body: { mode: "deep", limit: 10, warnings: [], results: [] } },
+    ]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("c", {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("unexpected envelope");
+  });
+
+  it("returns a friendly empty-namespace message when no rows match", async () => {
+    const { fetch } = createMockFetch([recent([])]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("c", {});
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toBe("No recent activity in eric/openclaw/episodic.");
+  });
+
+  it("surfaces a transport failure as a tool error", async () => {
+    const { fetch } = createMockFetch([{ status: 503, body: { detail: "down" } }]);
     const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
 
     const result = await tool.definition.execute("c", {});
@@ -252,7 +218,7 @@ describe("createRecentTool", () => {
   });
 
   it("uses agent presence when agentId is provided", async () => {
-    const { fetch, calls } = createMockFetch([{ status: 200, body: { items: [] } }]);
+    const { fetch, calls } = createMockFetch([recent([])]);
     const tool = createRecentTool({
       client: makeClient(fetch),
       config: makeConfig({
@@ -262,6 +228,6 @@ describe("createRecentTool", () => {
     });
 
     await tool.definition.execute("c", {});
-    expect(calls[0]?.url).toContain("namespace=eric%2Faoi%2Fepisodic");
+    expect(bodyOf(calls).namespace).toBe("eric/aoi/episodic");
   });
 });
