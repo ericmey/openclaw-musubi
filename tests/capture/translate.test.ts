@@ -14,6 +14,8 @@ const presence: PresenceContext = {
   token: "tok",
   namespaces: {
     episodic: "eric/openclaw/episodic",
+    thought: "eric/openclaw/thought",
+    artifact: "eric/openclaw/artifact",
     curatedReadScope: ["eric/openclaw/curated", "eric/_shared/curated"],
   },
 };

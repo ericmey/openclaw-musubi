@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MusubiConfig } from "../../src/config.js";
+import type { DeliveryRow } from "../../src/delivery/outbox.js";
 import { MusubiClient } from "../../src/musubi/client.js";
 import type { FetchLike } from "../../src/musubi/types.js";
 import { createThinkTool } from "../../src/tools/think.js";
@@ -128,6 +129,29 @@ describe("createThinkTool", () => {
   });
 });
 
+const rememberRow: DeliveryRow = {
+  id: 1,
+  idem_key: "openclaw-remember:c2",
+  content_sha256: "sha",
+  namespace: "eric/openclaw/episodic",
+  agent_id: null,
+  content: "x",
+  tags_json: "[]",
+  importance: 7,
+  source_ref: "c2",
+  created_at_ms: 1,
+  attempts: 0,
+  next_try_at_ms: 0,
+  leased_at_ms: null,
+  lease_owner: null,
+  last_error: null,
+  consecutive_failures: 0,
+  verified_at_ms: null,
+  died_at_ms: null,
+  state: "pending",
+  object_id: null,
+};
+
 describe("test_all_tools_honor_approval_hooks_when_required", () => {
   // Approval hooks (`before_tool_call` with `{ requireApproval: true }`) are
   // enforced by OpenClaw *before* a tool's execute() runs. The tool itself
@@ -153,7 +177,12 @@ describe("test_all_tools_honor_approval_hooks_when_required", () => {
     const config = makeConfig();
 
     const recall = createRecallTool({ client, config });
-    const remember = createRememberTool({ client, config });
+    const remember = createRememberTool({
+      delivery: {
+        enqueueExplicit: () => rememberRow,
+        awaitTerminal: async () => ({ ...rememberRow, state: "verified", object_id: "x" }),
+      },
+    });
     const think = createThinkTool({ client, config });
 
     const r1 = await recall.definition.execute("c1", { query: "x" });
