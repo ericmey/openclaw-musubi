@@ -22,6 +22,7 @@ function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     last_error: null,
     consecutive_failures: 0,
     verified_at_ms: null,
+    died_at_ms: null,
     state: "pending",
     object_id: null,
     ...overrides,
