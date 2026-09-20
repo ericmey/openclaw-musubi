@@ -6,7 +6,9 @@
  * that triggered the failure are always attached so logs trace cleanly.
  *
  * The taxonomy mirrors `docs/api-contract.md` §HTTP "Error taxonomy":
- * - `NetworkError`     — connection failure, DNS failure, abort/timeout.
+ * - `NetworkError`     — connection failure or DNS failure.
+ * - `TimeoutError`     — the per-request deadline elapsed; retried.
+ * - `AbortedError`     — the CALLER's signal fired; never retried.
  * - `AuthError`        — 401 or 403; never retried.
  * - `NotFoundError`    — 404; never retried.
  * - `RateLimitError`   — 429; retried with `Retry-After`.
@@ -17,6 +19,7 @@
 export type MusubiErrorCode =
   | "network"
   | "timeout"
+  | "aborted"
   | "auth"
   | "not-found"
   | "rate-limit"
@@ -54,6 +57,20 @@ export class TimeoutError extends MusubiError {
   constructor(timeoutMs: number, options: MusubiErrorOptions = {}) {
     super(`Request exceeded ${timeoutMs}ms timeout`, "timeout", options);
     this.name = "TimeoutError";
+  }
+}
+
+/**
+ * The caller's own `AbortSignal` fired. Distinct from {@link TimeoutError}:
+ * a timeout is a transport symptom worth retrying, whereas cancellation
+ * means nobody is waiting for the result any more. Retrying it would burn
+ * the whole attempt budget — and its backoff sleeps — re-aborting a request
+ * that has already been abandoned.
+ */
+export class AbortedError extends MusubiError {
+  constructor(options: MusubiErrorOptions = {}) {
+    super("Request aborted by caller", "aborted", options);
+    this.name = "AbortedError";
   }
 }
 

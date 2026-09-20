@@ -36,7 +36,9 @@ function createMockFetch(script: ScriptedResponse[]): {
     const headerInit = init.headers;
     if (headerInit) {
       if (Array.isArray(headerInit)) {
-        for (const [k, v] of headerInit) headers[k] = v;
+        for (const [k, v] of headerInit) {
+          if (k !== undefined && v !== undefined) headers[k] = v;
+        }
       } else if (headerInit instanceof Headers) {
         headerInit.forEach((value, key) => {
           headers[key] = value;
@@ -276,8 +278,11 @@ describe("MusubiClient", () => {
       retry: { maxAttempts: 1 }, // fail fast for the test
     });
 
+    // The deadline surfaces as `timeout`, not `network`: the subclass used to
+    // be constructed and then immediately discarded, so `code: "timeout"` was
+    // unreachable and callers could not tell a deadline from a dropped socket.
     await expect(client.get("/v1/ops/health")).rejects.toMatchObject({
-      code: "network",
+      code: "timeout",
     });
 
     expect(seenSignals[0]?.aborted).toBe(true);
@@ -345,5 +350,119 @@ describe("MusubiClient", () => {
     // If the listener leaked, subsequent aborts would error the already-
     // settled promise — which doesn't happen here because the fetch resolved.
     expect(ac.signal.aborted).toBe(false);
+  });
+});
+
+describe("MusubiClient retry boundaries", () => {
+  it("does not retry a request the caller aborted", async () => {
+    let calls = 0;
+    const slept: number[] = [];
+    const fetch: FetchLike = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        calls += 1;
+        const signal = init.signal as AbortSignal;
+        const fail = () => reject(new DOMException("aborted", "AbortError"));
+        if (signal.aborted) fail();
+        else signal.addEventListener("abort", fail, { once: true });
+      });
+    const client = makeClient(fetch, { sleep: async (ms) => void slept.push(ms) });
+
+    const controller = new AbortController();
+    const pending = client.get("/v1/ops/health", { signal: controller.signal });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "aborted" });
+    // Previously the abort was classified `network` and retried: the caller's
+    // cancellation cost a full 5-attempt budget plus ~7.5s of backoff sleeps,
+    // and during shutdown kept writing long after stop() had returned.
+    expect(calls).toBe(1);
+    expect(slept).toEqual([]);
+  });
+
+  it("still retries a per-request deadline", async () => {
+    let calls = 0;
+    const fetch: FetchLike = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        calls += 1;
+        (init.signal as AbortSignal).addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    const client = makeClient(fetch, { requestTimeoutMs: 1, retry: { maxAttempts: 3 } });
+
+    await expect(client.get("/v1/ops/health")).rejects.toMatchObject({ code: "timeout" });
+    expect(calls).toBe(3);
+  });
+
+  it("sleeps a short Retry-After in band", async () => {
+    const slept: number[] = [];
+    const { fetch } = createMockFetch([
+      { status: 429, headers: { "Retry-After": "2" } },
+      { status: 200, body: { ok: true } },
+    ]);
+    const client = makeClient(fetch, { sleep: async (ms) => void slept.push(ms) });
+
+    await expect(client.get("/v1/ops/health")).resolves.toEqual({ ok: true });
+    expect(slept).toEqual([2_000]);
+  });
+
+  it("honors the longest Retry-After Musubi can actually emit", async () => {
+    const slept: number[] = [];
+    const { fetch } = createMockFetch([
+      // Musubi's rate limiter uses a fixed 60s window and returns
+      // `max(1, 60 - elapsed)`, so 60s is the ceiling of the real contract.
+      // Refusing it would turn a legitimate backoff into a tool error.
+      { status: 429, headers: { "Retry-After": "60" } },
+      { status: 200, body: { ok: true } },
+    ]);
+    const client = makeClient(fetch, { sleep: async (ms) => void slept.push(ms) });
+
+    await expect(client.get("/v1/ops/health")).resolves.toEqual({ ok: true });
+    expect(slept).toEqual([60_000]);
+  });
+
+  it("surfaces a Retry-After longer than maxRetryAfterMs instead of sleeping on it", async () => {
+    const slept: number[] = [];
+    const { fetch, calls } = createMockFetch([
+      { status: 429, headers: { "Retry-After": "86400" } },
+      { status: 200, body: { ok: true } },
+    ]);
+    const client = makeClient(fetch, { sleep: async (ms) => void slept.push(ms) });
+
+    // An in-band sleep here holds the delivery worker's drain lock, so a
+    // 24h Retry-After used to freeze every other queued row. The wait now
+    // belongs to the durable outbox, which schedules it without blocking.
+    const error = await client.get("/v1/ops/health").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RateLimitError);
+    expect((error as RateLimitError).retryAfterMs).toBe(86_400_000);
+    expect(slept).toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps the Retry-After bound when a caller passes an explicit undefined", async () => {
+    const slept: number[] = [];
+    const { fetch } = createMockFetch([{ status: 429, headers: { "Retry-After": "86400" } }]);
+    const client = makeClient(fetch, {
+      sleep: async (ms) => void slept.push(ms),
+      retry: { maxAttempts: 5, maxRetryAfterMs: undefined as unknown as number },
+    });
+
+    await expect(client.get("/v1/ops/health")).rejects.toBeInstanceOf(RateLimitError);
+    expect(slept).toEqual([]);
+  });
+
+  it("ignores a blank Retry-After rather than retrying immediately", async () => {
+    const slept: number[] = [];
+    const { fetch } = createMockFetch([
+      { status: 429, headers: { "Retry-After": "  " } },
+      { status: 200, body: { ok: true } },
+    ]);
+    const client = makeClient(fetch, { sleep: async (ms) => void slept.push(ms) });
+
+    await expect(client.get("/v1/ops/health")).resolves.toEqual({ ok: true });
+    // `Number("")` is 0, which would have scheduled a hot retry.
+    expect(slept).toEqual([500]);
   });
 });
