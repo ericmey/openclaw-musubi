@@ -353,6 +353,10 @@ describe("MusubiClient", () => {
   });
 });
 
+function client_forListenerTest(fetch: FetchLike) {
+  return makeClient(fetch, { sleep: async () => undefined });
+}
+
 describe("MusubiClient retry boundaries", () => {
   it("does not retry a request the caller aborted", async () => {
     let calls = 0;
@@ -451,6 +455,62 @@ describe("MusubiClient retry boundaries", () => {
 
     await expect(client.get("/v1/ops/health")).rejects.toBeInstanceOf(RateLimitError);
     expect(slept).toEqual([]);
+  });
+
+  it("aborts out of a backoff wait instead of sleeping through a shutdown", async () => {
+    let calls = 0;
+    const { fetch } = createMockFetch([
+      { status: 503, body: "down" },
+      { status: 200, body: { ok: true } },
+    ]);
+    const counting: FetchLike = (url, init) => {
+      calls += 1;
+      return fetch(url, init);
+    };
+    const controller = new AbortController();
+    // A real 60s wait, abandoned mid-flight.
+    const client = makeClient(counting, {
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
+
+    const pending = client.get("/v1/ops/health", { signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+
+    // Sleeping through the abort let the loop wake after stop() had returned
+    // and the controller had closed the outbox — so the worker's AbortedError
+    // path wrote to a closed database.
+    await expect(pending).rejects.toMatchObject({ code: "aborted" });
+    expect(calls).toBe(1);
+  });
+
+  it("does not accumulate an abort listener per retry", async () => {
+    const { fetch } = createMockFetch([
+      { status: 503, body: "down" },
+      { status: 503, body: "down" },
+      { status: 200, body: { ok: true } },
+    ]);
+    const controller = new AbortController();
+    let peak = 0;
+    let live = 0;
+    const signal = controller.signal;
+    const realAdd = signal.addEventListener.bind(signal);
+    const realRemove = signal.removeEventListener.bind(signal);
+    signal.addEventListener = ((...args: Parameters<typeof realAdd>) => {
+      live += 1;
+      peak = Math.max(peak, live);
+      return realAdd(...args);
+    }) as typeof realAdd;
+    signal.removeEventListener = ((...args: Parameters<typeof realRemove>) => {
+      live -= 1;
+      return realRemove(...args);
+    }) as typeof realRemove;
+
+    await expect(client_forListenerTest(fetch).get("/v1/x", { signal })).resolves.toEqual({
+      ok: true,
+    });
+    expect(live).toBe(0);
+    expect(peak).toBeLessThanOrEqual(2);
   });
 
   it("ignores a blank Retry-After rather than retrying immediately", async () => {

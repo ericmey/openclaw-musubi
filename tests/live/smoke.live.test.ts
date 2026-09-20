@@ -78,8 +78,12 @@ describeLive("openclaw-musubi × live Musubi", () => {
         idempotencyKey: `openclaw-musubi-live-recent-${nonce}`,
       });
       const terminal = await delivery.awaitTerminal(row.id, 20_000);
-      expect(terminal?.state, terminal?.last_error ?? "no error detail").toBe("verified");
+      // Assign BEFORE asserting. A write that was accepted but whose readback
+      // is still pending yields an object_id with a non-verified state; if the
+      // assertion threw first, `finally` would skip cleanup and leave a
+      // diagnostic row behind in a real memory store.
       objectId = terminal?.object_id ?? undefined;
+      expect(terminal?.state, terminal?.last_error ?? "no error detail").toBe("verified");
       expect(objectId).toBeTruthy();
 
       // Server-side tag filter (AND semantics) across the whole namespace.

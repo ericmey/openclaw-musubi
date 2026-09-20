@@ -129,7 +129,13 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
           return toolError(`Musubi recent failed: ${errorMessage(err)}`);
         }
 
-        if (response?.mode !== "recent" || !Array.isArray(response.results)) {
+        if (
+          response?.mode !== "recent" ||
+          !Array.isArray(response.results) ||
+          // A malformed `warnings` would otherwise pass this gate and throw
+          // from `.map()` below instead of returning the tool error.
+          (response.warnings !== undefined && !Array.isArray(response.warnings))
+        ) {
           return toolError("Musubi recent returned an unexpected envelope; no rows were surfaced.");
         }
 
