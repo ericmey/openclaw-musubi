@@ -34,6 +34,7 @@ export type DeliveryRow = {
   readonly last_error: string | null;
   readonly consecutive_failures: number;
   readonly verified_at_ms: number | null;
+  readonly died_at_ms: number | null;
   readonly state: DeliveryState;
   readonly object_id: string | null;
 };
@@ -41,6 +42,8 @@ export type DeliveryRow = {
 export type OutboxHealth = {
   readonly pending: number;
   readonly dead: number;
+  /** Dead rows that died inside {@link DEAD_ALERT_WINDOW_MS}; drives `degraded`. */
+  readonly recentDead: number;
   readonly oldestPendingAgeMs: number;
   readonly consecutiveFailures: number;
   readonly lastVerifiedAtMs: number | null;
@@ -49,6 +52,17 @@ export type OutboxHealth = {
 
 const LEASE_TTL_MS = 120_000;
 const VERIFIED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const DEAD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * How long a dead row keeps the provider marked `degraded`.
+ *
+ * Dead rows are retained for 30 days so an operator can still inspect what
+ * failed, but a permanent `degraded` flag is a signal nobody acts on: a
+ * single delivery that died last month would otherwise pin `/musubi-status`
+ * to "degraded" forever with no way to clear it short of editing SQLite.
+ * Health reports the full `dead` count either way — only the alarm is windowed.
+ */
+const DEAD_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Durable delivery ledger. A passive capture is accepted only after this
@@ -83,12 +97,36 @@ export class DeliveryOutbox {
         last_error TEXT,
         consecutive_failures INTEGER NOT NULL DEFAULT 0,
         verified_at_ms INTEGER,
+        died_at_ms INTEGER,
         state TEXT NOT NULL DEFAULT 'pending',
         object_id TEXT
       );
       CREATE INDEX IF NOT EXISTS ix_delivery_outbox_ready
         ON delivery_outbox(state, next_try_at_ms);
     `);
+    this.#migrate();
+  }
+
+  /**
+   * Additive, idempotent column migrations. `CREATE TABLE IF NOT EXISTS`
+   * leaves an existing ledger untouched, so a column added after 2.0.7 has
+   * to be patched onto databases already on disk.
+   */
+  #migrate(): void {
+    const columns = new Set(
+      (this.#db.prepare("PRAGMA table_info(delivery_outbox)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    if (!columns.has("died_at_ms")) {
+      this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN died_at_ms INTEGER");
+      // Rows that died before this column existed get a timestamp now rather
+      // than NULL, so they age out of the alert window instead of being
+      // treated as having died at the epoch (or never aging out at all).
+      this.#db
+        .prepare("UPDATE delivery_outbox SET died_at_ms = ? WHERE state = 'dead'")
+        .run(Date.now());
+    }
   }
 
   enqueue(item: EnqueueDelivery): DeliveryRow {
@@ -172,7 +210,7 @@ export class DeliveryOutbox {
           `UPDATE delivery_outbox
            SET state = CASE WHEN object_id IS NULL THEN 'pending' ELSE 'accepted' END,
                leased_at_ms = NULL, lease_owner = NULL, attempts = attempts + 1
-           WHERE state = 'inflight' AND leased_at_ms < ?`,
+           WHERE state = 'inflight' AND (leased_at_ms IS NULL OR leased_at_ms < ?)`,
         )
         .run(now - LEASE_TTL_MS);
       const ids = (
@@ -233,7 +271,19 @@ export class DeliveryOutbox {
       .run(objectId, now, id);
   }
 
-  markFailed(id: number, error: string, retryable: boolean, now = Date.now()): void {
+  /**
+   * @param retryAfterMs Server-requested wait (from a 429 `Retry-After` the
+   *   client declined to sleep on in-band). Honored verbatim when it exceeds
+   *   the computed backoff, so a long rate-limit window is waited out here —
+   *   durably, and without blocking the worker's drain loop.
+   */
+  markFailed(
+    id: number,
+    error: string,
+    retryable: boolean,
+    now = Date.now(),
+    retryAfterMs?: number,
+  ): void {
     const row = this.row(id);
     if (!row) return;
     if (!retryable) {
@@ -241,15 +291,19 @@ export class DeliveryOutbox {
         .prepare(
           `UPDATE delivery_outbox
            SET state = 'dead', last_error = ?, consecutive_failures = consecutive_failures + 1,
-               leased_at_ms = NULL, lease_owner = NULL
+               leased_at_ms = NULL, lease_owner = NULL, died_at_ms = ?
            WHERE id = ?`,
         )
-        .run(error.slice(0, 500), id);
+        .run(error.slice(0, 500), now, id);
       return;
     }
     const attempts = row.attempts + 1;
     const base = Math.min(300_000, 2 ** Math.min(attempts, 8) * 1000);
-    const jitter = deterministicJitter(row.idem_key, attempts, base);
+    const backoff = deterministicJitter(row.idem_key, attempts, base);
+    const jitter =
+      retryAfterMs !== undefined && Number.isFinite(retryAfterMs)
+        ? Math.max(backoff, Math.min(retryAfterMs, DEAD_RETENTION_MS))
+        : backoff;
     this.#db
       .prepare(
         `UPDATE delivery_outbox
@@ -261,44 +315,84 @@ export class DeliveryOutbox {
       .run(row.object_id ? "accepted" : "pending", attempts, now + jitter, error.slice(0, 500), id);
   }
 
+  /**
+   * Return a leased row to its ready state without recording a failure.
+   *
+   * Used when delivery was cancelled rather than rejected (process shutdown):
+   * charging a `consecutive_failures` increment for an orderly stop would
+   * walk a healthy provider toward `degraded` across a few restarts.
+   */
+  markDeferred(id: number, now = Date.now()): void {
+    const row = this.row(id);
+    if (!row) return;
+    this.#db
+      .prepare(
+        `UPDATE delivery_outbox
+         SET state = ?, next_try_at_ms = ?, leased_at_ms = NULL, lease_owner = NULL
+         WHERE id = ? AND state = 'inflight'`,
+      )
+      .run(row.object_id ? "accepted" : "pending", now, id);
+  }
+
   health(now = Date.now()): OutboxHealth {
     const aggregate = this.#db
       .prepare(
         `SELECT
           SUM(CASE WHEN state IN ('pending','inflight','accepted') THEN 1 ELSE 0 END) AS pending,
           SUM(CASE WHEN state = 'dead' THEN 1 ELSE 0 END) AS dead,
+          SUM(CASE WHEN state = 'dead' AND (died_at_ms IS NULL OR died_at_ms >= ?)
+                   THEN 1 ELSE 0 END) AS recent_dead,
           MIN(CASE WHEN state IN ('pending','inflight','accepted') THEN created_at_ms END) AS oldest,
           MAX(CASE WHEN state IN ('pending','inflight','accepted') THEN consecutive_failures ELSE 0 END) AS failures,
           MAX(verified_at_ms) AS last_verified
          FROM delivery_outbox`,
       )
-      .get() as {
+      .get(now - DEAD_ALERT_WINDOW_MS) as {
       pending: number | null;
       dead: number | null;
+      recent_dead: number | null;
       oldest: number | null;
       failures: number | null;
       last_verified: number | null;
     };
     const pending = aggregate.pending ?? 0;
     const dead = aggregate.dead ?? 0;
+    const recentDead = aggregate.recent_dead ?? 0;
     const oldestPendingAgeMs = aggregate.oldest === null ? 0 : Math.max(0, now - aggregate.oldest);
     const consecutiveFailures = aggregate.failures ?? 0;
     return {
       pending,
       dead,
+      recentDead,
       oldestPendingAgeMs,
       consecutiveFailures,
       lastVerifiedAtMs: aggregate.last_verified,
-      degraded: dead > 0 || consecutiveFailures >= 3 || oldestPendingAgeMs > 300_000,
+      // Windowed on purpose: see DEAD_ALERT_WINDOW_MS. `dead` stays in the
+      // payload so an operator can still see the full history.
+      degraded: recentDead > 0 || consecutiveFailures >= 3 || oldestPendingAgeMs > 300_000,
     };
   }
 
+  /**
+   * Drop rows past their retention. Verified rows carry no plaintext (it is
+   * cleared at verification) and go after 7 days; dead rows keep their
+   * payload for post-mortem and go after 30.
+   */
+  prune(now = Date.now()): number {
+    const verified = this.#db
+      .prepare("DELETE FROM delivery_outbox WHERE state = 'verified' AND verified_at_ms < ?")
+      .run(now - VERIFIED_RETENTION_MS).changes;
+    const dead = this.#db
+      .prepare(
+        "DELETE FROM delivery_outbox WHERE state = 'dead' AND died_at_ms IS NOT NULL AND died_at_ms < ?",
+      )
+      .run(now - DEAD_RETENTION_MS).changes;
+    return Number(verified) + Number(dead);
+  }
+
+  /** @deprecated Use {@link prune}, which also retires aged dead rows. */
   pruneVerified(now = Date.now()): number {
-    return Number(
-      this.#db
-        .prepare("DELETE FROM delivery_outbox WHERE state = 'verified' AND verified_at_ms < ?")
-        .run(now - VERIFIED_RETENTION_MS).changes,
-    );
+    return this.prune(now);
   }
 
   close(): void {

@@ -55,8 +55,15 @@ The delivery boundary is local SQLite, not a successful network response:
    content SHA-256.
 7. Only then mark the row `verified` and prune plaintext from the outbox.
 
-`401`, `403`, invalid write envelopes, and readback identity mismatches become
-durable `dead` rows. Retryable failures remain pending with bounded backoff.
+`401`, `403`, invalid write envelopes, readback identity mismatches, and local
+faults such as a corrupt ledger row become durable `dead` rows. Only failures
+that are positively classified retryable — transport, timeout, `5xx`, `429`,
+and a degraded receipt envelope — remain pending with bounded backoff; an
+unrecognized error dead-letters rather than retrying indefinitely.
+
+Delivery cancelled by shutdown is neither: the lease is released without
+recording a failure, so restarts do not walk a healthy provider toward
+`degraded`.
 
 ### Episodic content ceiling
 
@@ -119,6 +126,10 @@ A cleanup failure makes the doctor fail. The doctor never runs at startup.
 report local provider truth: service running state, pending and dead rows,
 oldest pending age, failure streak, and last verified delivery. They do not
 claim to be remote-core health probes.
+
+`degraded` is driven by deaths inside a 24h window, not by the lifetime `dead`
+count: a row that died last month stays visible and inspectable for 30 days,
+but must not pin the provider to `degraded` forever with no way to clear it.
 
 ## Thoughts boundary
 

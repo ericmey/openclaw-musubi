@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
-import { MusubiError } from "../musubi/errors.js";
+import { AbortedError, MusubiError, RateLimitError } from "../musubi/errors.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import type { DeliveryOutbox, DeliveryRow, OutboxHealth } from "./outbox.js";
 
@@ -109,7 +109,7 @@ export class DeliveryWorker {
       this.#pruneTicks += 1;
       if (this.#pruneTicks >= 300) {
         this.#pruneTicks = 0;
-        this.#outbox.pruneVerified();
+        this.#outbox.prune();
       }
     } catch (error) {
       this.#logger.error(`musubi: outbox worker failed — ${errorMessage(error)}`);
@@ -157,9 +157,21 @@ export class DeliveryWorker {
       this.#outbox.markAccepted(row.id, objectId);
       await this.#verify(row, objectId);
     } catch (error) {
+      if (error instanceof AbortedError) {
+        // Shutdown, not failure. Release the lease without charging the row a
+        // failure, so restarting does not walk it toward `degraded`.
+        this.#outbox.markDeferred(row.id);
+        return;
+      }
       const prefix =
         row.attempts > 0 && !row.object_id ? "delivery/receipt lookup failed" : "delivery failed";
-      this.#outbox.markFailed(row.id, `${prefix}: ${errorMessage(error)}`, isRetryable(error));
+      this.#outbox.markFailed(
+        row.id,
+        `${prefix}: ${errorMessage(error)}`,
+        isRetryable(error),
+        Date.now(),
+        retryAfterMs(error),
+      );
     }
   }
 
@@ -175,19 +187,21 @@ export class DeliveryWorker {
       token,
       signal: this.#abortController.signal,
     });
+    // `limit` is deliberately NOT compared: a server that clamps or omits the
+    // echo is not degraded, but treating it as such turned every retry of an
+    // already-attempted row into a permanent stall.
     if (
       response?.mode !== "recent" ||
-      response.limit !== 50 ||
       !Array.isArray(response.results) ||
       !Array.isArray(response.warnings) ||
       response.warnings.length > 0
     ) {
-      throw new Error("receipt lookup returned an invalid or degraded envelope");
+      throw new TransientDeliveryError("receipt lookup returned an invalid or degraded envelope");
     }
     const first = response.results[0];
     if (!first) return undefined;
     if (typeof first.object_id !== "string" || first.object_id.length === 0) {
-      throw new Error("receipt lookup returned a row without object_id");
+      throw new TransientDeliveryError("receipt lookup returned a row without object_id");
     }
     return first.object_id;
   }
@@ -239,11 +253,17 @@ export class DeliveryWorker {
       this.#outbox.markVerified(row.id, objectId);
       this.#logger.debug?.(`musubi: verified ${row.namespace}/${objectId}`);
     } catch (error) {
+      if (error instanceof AbortedError) {
+        this.#outbox.markDeferred(row.id);
+        return;
+      }
       const grace404 = error instanceof MusubiError && error.status === 404 && row.attempts < 5;
       this.#outbox.markFailed(
         row.id,
         `readback failed: ${errorMessage(error)}`,
         grace404 || isRetryable(error),
+        Date.now(),
+        retryAfterMs(error),
       );
     }
   }
@@ -262,14 +282,42 @@ export class DeliveryWorker {
   }
 }
 
+/**
+ * A non-HTTP delivery failure that is still worth retrying — today, a receipt
+ * lookup whose envelope came back degraded.
+ *
+ * It exists so that everything else which is NOT a `MusubiError` can safely
+ * dead-letter. Previously any such error (a corrupt `tags_json` row, a logic
+ * bug, a degraded envelope) was classified retryable, so it spun forever:
+ * never delivered, never dead-lettered, and pinning the provider `degraded`
+ * through `oldestPendingAgeMs` with no operator-visible terminal state.
+ */
+export class TransientDeliveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientDeliveryError";
+  }
+}
+
 function isRetryable(error: unknown): boolean {
-  if (!(error instanceof MusubiError)) return true;
+  if (error instanceof TransientDeliveryError) return true;
+  if (!(error instanceof MusubiError)) return false;
   return (
     error.code === "network" ||
     error.code === "timeout" ||
+    // Shutdown cancellation: the row must survive to the next process.
+    error.code === "aborted" ||
     error.code === "server" ||
     error.code === "rate-limit"
   );
+}
+
+/**
+ * A 429 the client declined to sleep on in-band hands its `Retry-After` to
+ * the outbox, which waits it out durably instead of blocking the drain loop.
+ */
+function retryAfterMs(error: unknown): number | undefined {
+  return error instanceof RateLimitError ? error.retryAfterMs : undefined;
 }
 
 function parseTags(value: string): string[] {

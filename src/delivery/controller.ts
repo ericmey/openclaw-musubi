@@ -188,6 +188,7 @@ export class DeliveryController {
         running: false,
         pending: 0,
         dead: 0,
+        recentDead: 0,
         oldestPendingAgeMs: 0,
         consecutiveFailures: 0,
         lastVerifiedAtMs: null,

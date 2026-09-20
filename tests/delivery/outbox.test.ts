@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -422,5 +423,159 @@ describe("episodic ceiling at the delivery boundary", () => {
     } finally {
       await controller.stop();
     }
+  });
+});
+
+describe("DeliveryOutbox degradation lifecycle", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("stops alarming once a death ages out of the alert window", () => {
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    const died = Date.now();
+    outbox.markFailed(row.id, "permanent rejection", false, died);
+
+    expect(outbox.health(died)).toMatchObject({ dead: 1, recentDead: 1, degraded: true });
+    // A delivery that died last week must not pin /musubi-status to
+    // "degraded" forever — an alarm nobody can clear is an alarm nobody reads.
+    // The row itself is still there to inspect.
+    expect(outbox.health(died + 2 * DAY)).toMatchObject({
+      dead: 1,
+      recentDead: 0,
+      degraded: false,
+    });
+    outbox.close();
+  });
+
+  it("retires dead rows past retention but keeps them for post-mortem first", () => {
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    const died = Date.now();
+    outbox.markFailed(row.id, "permanent rejection", false, died);
+
+    expect(outbox.prune(died + 29 * DAY)).toBe(0);
+    expect(outbox.row(row.id)?.last_error).toContain("permanent rejection");
+    expect(outbox.prune(died + 31 * DAY)).toBe(1);
+    expect(outbox.row(row.id)).toBeUndefined();
+    outbox.close();
+  });
+
+  it("releases a cancelled lease without charging the row a failure", () => {
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.claimBatch();
+    expect(outbox.row(row.id)?.state).toBe("inflight");
+
+    outbox.markDeferred(row.id);
+
+    const after = outbox.row(row.id);
+    expect(after?.state).toBe("pending");
+    expect(after?.lease_owner).toBeNull();
+    // Shutdown is not failure: a few restarts with in-flight rows must not
+    // walk a healthy provider toward `degraded`.
+    expect(after?.consecutive_failures).toBe(0);
+    expect(outbox.health().degraded).toBe(false);
+    outbox.close();
+  });
+
+  it("reclaims an inflight row whose lease timestamp is NULL", () => {
+    const { path, outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.claimBatch();
+    outbox.close();
+
+    // Force the state a crash between the lease UPDATE and its commit — or an
+    // older build — could leave behind. `leased_at_ms < ?` is NULL-false in
+    // SQL, so such a row was invisible to claimBatch's stale-lease sweep and
+    // could never be retried: a durable capture silently stranded forever.
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE delivery_outbox SET leased_at_ms = NULL WHERE state = 'inflight'");
+    raw.close();
+
+    const reopened = new DeliveryOutbox(path);
+    const claimed = reopened.claimBatch(20, Date.now() + 10 * 60_000);
+    expect(claimed.map((r) => r.id)).toContain(row.id);
+    reopened.close();
+  });
+});
+
+describe("DeliveryWorker failure classification", () => {
+  function makeWorker(outbox: DeliveryOutbox, fetch: FetchLike) {
+    return new DeliveryWorker({
+      client: new MusubiClient({
+        baseUrl: config.core.baseUrl,
+        token: "default",
+        fetch,
+        sleep: async () => undefined,
+      }),
+      config,
+      outbox,
+      logger,
+    });
+  }
+
+  it("dead-letters a corrupt ledger row instead of retrying it forever", async () => {
+    const { path, outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.close();
+
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE delivery_outbox SET tags_json = '\"not-an-array\"'");
+    raw.close();
+
+    const reopened = new DeliveryOutbox(path);
+    const worker = makeWorker(reopened, async () => new Response("{}", { status: 200 }));
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 2000);
+
+    // Corruption is permanent. Classifying every non-HTTP error as retryable
+    // meant this row span forever: never delivered, never dead-lettered, and
+    // dragging the provider into `degraded` via oldestPendingAgeMs.
+    expect(terminal?.state).toBe("dead");
+    expect(terminal?.last_error).toContain("tags_json");
+    await worker.stop();
+    reopened.close();
+  });
+
+  it("accepts a receipt envelope whose limit echo differs from the request", async () => {
+    let posts = 0;
+    const fetch: FetchLike = async (url, init) => {
+      if (init?.method === "POST" && url.includes("/v1/retrieve")) {
+        posts += 1;
+        // Server clamped the echo. Not degraded — but demanding `limit === 50`
+        // turned every retry of an already-attempted row into a hard stall.
+        return new Response(
+          JSON.stringify({
+            mode: "recent",
+            limit: 25,
+            warnings: [],
+            results: [{ object_id: "obj-existing" }],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          object_id: "obj-existing",
+          namespace: "aoi/command-chair/episodic",
+          content: "durable note",
+          tags: [],
+        }),
+        { status: 200 },
+      );
+    };
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.markFailed(row.id, "network", true, -1_000_000);
+
+    const worker = makeWorker(outbox, fetch);
+    worker.start();
+    const terminal = await worker.awaitTerminal(row.id, 2000);
+
+    expect(posts).toBe(1);
+    expect(terminal?.state).toBe("verified");
+    expect(terminal?.object_id).toBe("obj-existing");
+    await worker.stop();
+    outbox.close();
   });
 });
