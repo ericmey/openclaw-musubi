@@ -1,6 +1,7 @@
 import { DEFAULT_REQUEST_TIMEOUT_MS } from "../config.js";
 import type { MusubiError } from "./errors.js";
 import {
+  AbortedError,
   AuthError,
   ClientError,
   NetworkError,
@@ -31,9 +32,13 @@ const defaultIdGenerator = (): string => crypto.randomUUID();
  * reused across retries so a retried write never double-posts.
  *
  * Retry behavior follows `docs/api-contract.md`:
- * - Network errors and 5xx responses are retried with exponential backoff.
- * - 429 honors `Retry-After` (seconds).
+ * - Network errors, timeouts, and 5xx responses are retried with exponential
+ *   backoff.
+ * - 429 honors `Retry-After` in band up to `retry.maxRetryAfterMs`; a longer
+ *   wait is thrown to the caller so it can be scheduled durably rather than
+ *   slept on under whatever lock the caller holds.
  * - 401/403/404 and other 4xx are never retried.
+ * - A request the CALLER aborted is never retried; it raises `AbortedError`.
  * - All retries bounded by `retry.maxAttempts` (default 5).
  */
 export class MusubiClient {
@@ -55,7 +60,12 @@ export class MusubiClient {
     this.#baseUrl = normalized;
     this.#token = options.token;
     this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
-    this.#retry = { ...DEFAULT_RETRY_POLICY, ...(options.retry ?? {}) };
+    const retry = { ...DEFAULT_RETRY_POLICY, ...(options.retry ?? {}) };
+    // A caller spreading in an explicit `undefined` would otherwise restore
+    // the unbounded in-band sleep this bound exists to prevent.
+    this.#retry = Number.isFinite(retry.maxRetryAfterMs)
+      ? retry
+      : { ...retry, maxRetryAfterMs: DEFAULT_RETRY_POLICY.maxRetryAfterMs };
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#generateRequestId = options.generateRequestId ?? defaultIdGenerator;
     this.#generateIdempotencyKey = options.generateIdempotencyKey ?? defaultIdGenerator;
@@ -116,18 +126,31 @@ export class MusubiClient {
       }
 
       const error = attemptResult.error;
+      // `aborted` is deliberately absent: caller cancellation is terminal.
       const isRetryable =
-        error.code === "network" || error.code === "server" || error.code === "rate-limit";
+        error.code === "network" ||
+        error.code === "timeout" ||
+        error.code === "server" ||
+        error.code === "rate-limit";
       const hasAttemptsLeft = attempt < this.#retry.maxAttempts - 1;
 
       if (!isRetryable || !hasAttemptsLeft) {
         throw error;
       }
 
-      const delayMs =
-        error instanceof RateLimitError && error.retryAfterMs !== undefined
-          ? error.retryAfterMs
-          : nextDelayMs(attempt, this.#retry, this.#random);
+      let delayMs: number;
+      if (error instanceof RateLimitError && error.retryAfterMs !== undefined) {
+        // Hand a long `Retry-After` back to the caller rather than sleeping
+        // on it: the delivery worker holds its drain lock across this await,
+        // so a multi-minute wait here would stall every other queued row.
+        // The durable outbox reschedules it instead. See RetryPolicy.
+        if (error.retryAfterMs > this.#retry.maxRetryAfterMs) {
+          throw error;
+        }
+        delayMs = error.retryAfterMs;
+      } else {
+        delayMs = nextDelayMs(attempt, this.#retry, this.#random);
+      }
 
       await this.#sleep(delayMs);
     }
@@ -169,16 +192,19 @@ export class MusubiClient {
       }
       const cause = rawError instanceof Error ? rawError : undefined;
       const isAbort = cause?.name === "AbortError";
+      if (isAbort && externalSignal?.aborted) {
+        // The CALLER cancelled. Retrying would re-abort instantly on every
+        // remaining attempt, burning the full budget plus its backoff sleeps
+        // on a request nobody is waiting for — and, during shutdown, would
+        // keep writing long after `stop()` returned.
+        return { kind: "err", error: new AbortedError({ requestId, cause }) };
+      }
+      // Timeouts stay a distinct subclass (code `timeout`) so callers and
+      // logs keep the distinction; both classes are retried.
       const error = isAbort
         ? new TimeoutError(timeoutMs, { requestId, cause })
         : new NetworkError(cause?.message ?? "Network request failed", { requestId, cause });
-      // Timeouts and network errors are both retried as "network" class.
-      // The TimeoutError subclass keeps the distinction for callers/logging.
-      const retryableError =
-        error instanceof TimeoutError
-          ? new NetworkError(error.message, { requestId, cause, status: undefined })
-          : error;
-      return { kind: "err", error: retryableError };
+      return { kind: "err", error };
     }
     clearTimeout(timer);
     if (externalSignal) {
@@ -268,11 +294,14 @@ export class MusubiClient {
 
 function parseRetryAfter(header: string | null): number | undefined {
   if (header === null) return undefined;
-  const seconds = Number(header);
+  const trimmed = header.trim();
+  // `Number("")` is 0, which would schedule an immediate hot retry.
+  if (trimmed.length === 0) return undefined;
+  const seconds = Number(trimmed);
   if (Number.isFinite(seconds) && seconds >= 0) {
     return Math.round(seconds * 1000);
   }
-  const dateMs = Date.parse(header);
+  const dateMs = Date.parse(trimmed);
   if (Number.isFinite(dateMs)) {
     return Math.max(0, dateMs - Date.now());
   }

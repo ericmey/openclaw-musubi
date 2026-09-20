@@ -30,8 +30,16 @@ failures.
 - `X-Request-Id`: fresh for every HTTP call.
 - `Idempotency-Key`: stable for one logical POST and reused by retries.
 - Timeouts: `core.requestTimeoutMs`, defaulted by `src/config.ts`.
-- Retryable: network failures, `5xx`, and `429` after `Retry-After`.
-- Non-retryable: `401`, `403`, `404`, and other client errors.
+- Retryable: network failures, per-request timeouts, `5xx`, and `429`.
+- Non-retryable: `401`, `403`, `404`, other client errors, and a request the
+  caller aborted. Cancellation is terminal — retrying it would burn the whole
+  attempt budget, and its backoff sleeps, re-aborting an abandoned request.
+- `429` honors `Retry-After` in band up to `retry.maxRetryAfterMs` (60s,
+  matching Musubi's own fixed 60s rate-limit window, so every value the
+  server can legitimately emit is honored exactly). A longer wait is outside
+  that contract and is returned to the caller instead, because an in-band
+  sleep holds the delivery worker's drain lock and would stall every other
+  queued row; the outbox schedules that wait durably.
 
 ## Durable completed-turn and explicit-store delivery
 

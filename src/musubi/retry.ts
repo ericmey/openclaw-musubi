@@ -17,6 +17,22 @@ export type RetryPolicy = {
   readonly jitterMs: number;
   /** Hard cap; the final delay is `min(base * 2^n + jitter, maxDelayMs)`. */
   readonly maxDelayMs: number;
+  /**
+   * Longest `Retry-After` this client will honor with an in-band sleep.
+   *
+   * Set to 60s to match Musubi's own rate limiter, whose fixed 60s window
+   * caps `Retry-After` at `max(1, 60 - elapsed)` — so every value the server
+   * can legitimately emit is still honored exactly, and backing off under a
+   * real 429 keeps its intended meaning.
+   *
+   * The bound exists for values OUTSIDE that contract (a proxy, a
+   * misconfigured gateway, a hostile intermediary). An in-band sleep holds
+   * whatever lock the caller is under — the delivery worker holds its drain
+   * lock across the await — so honoring a multi-hour `Retry-After` here
+   * would stall every other queued row. Those are surfaced to the caller,
+   * and the durable outbox schedules the wait instead, without blocking.
+   */
+  readonly maxRetryAfterMs: number;
 };
 
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
@@ -24,6 +40,7 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   baseDelayMs: 500,
   jitterMs: 250,
   maxDelayMs: 8_000,
+  maxRetryAfterMs: 60_000,
 };
 
 /**
