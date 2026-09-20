@@ -460,6 +460,29 @@ describe("DeliveryOutbox degradation lifecycle", () => {
     outbox.close();
   });
 
+  it("backfills a dead row left NULL by an interrupted migration", () => {
+    const { path, outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.markFailed(row.id, "permanent rejection", false);
+    outbox.close();
+
+    // The state a crash between ALTER TABLE and its backfill leaves behind:
+    // the column exists, so a branch-guarded backfill would skip it forever.
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE delivery_outbox SET died_at_ms = NULL WHERE state = 'dead'");
+    raw.close();
+
+    const reopened = new DeliveryOutbox(path);
+    const now = Date.now();
+
+    // Without the backfill this row counts as recentDead forever (health's
+    // IS NULL) and is never pruned (prune's IS NOT NULL) — relatching the
+    // exact degraded-forever bug this column was added to end.
+    expect(reopened.health(now + 2 * DAY)).toMatchObject({ recentDead: 0, degraded: false });
+    expect(reopened.prune(now + 31 * DAY)).toBe(1);
+    reopened.close();
+  });
+
   it("releases a cancelled lease without charging the row a failure", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());

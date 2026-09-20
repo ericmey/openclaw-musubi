@@ -129,13 +129,21 @@ export class DeliveryOutbox {
     );
     if (!columns.has("died_at_ms")) {
       this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN died_at_ms INTEGER");
-      // Rows that died before this column existed get a timestamp now rather
-      // than NULL, so they age out of the alert window instead of being
-      // treated as having died at the epoch (or never aging out at all).
-      this.#db
-        .prepare("UPDATE delivery_outbox SET died_at_ms = ? WHERE state = 'dead'")
-        .run(Date.now());
     }
+    // Backfill on EVERY pass, not just the one that adds the column. The
+    // ALTER and this UPDATE are separate statements, so a process that died
+    // between them would leave a ledger whose column exists but whose dead
+    // rows are NULL — and a later startup, seeing the column, would skip a
+    // backfill guarded by the branch above. Those rows then count as
+    // `recentDead` forever (the `IS NULL` predicate in health()) and are
+    // never pruned (the `IS NOT NULL` predicate in prune()), which is
+    // precisely the latched-`degraded` failure this column was added to end.
+    // Idempotent: once every dead row has a timestamp this matches nothing.
+    this.#db
+      .prepare(
+        "UPDATE delivery_outbox SET died_at_ms = ? WHERE state = 'dead' AND died_at_ms IS NULL",
+      )
+      .run(Date.now());
   }
 
   enqueue(item: EnqueueDelivery): DeliveryRow {
