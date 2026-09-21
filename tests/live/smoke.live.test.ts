@@ -23,16 +23,21 @@ const NS_ROOT = NS_ROOT_FROM_ENV ?? NS_ROOT_DEFAULT;
 const describeLive = BASE_URL && TOKEN ? describe : describe.skip;
 
 /**
- * Write straight to stdout rather than through `console`.
+ * Write straight to stderr rather than through `console` or stdout.
  *
- * Vitest intercepts `console.*` from a test module and swallows what is
- * emitted at import time -- verified here, not assumed: the first version of
+ * Not `console.*`: vitest intercepts it from a test module and swallows what
+ * is emitted at import time. Verified, not assumed -- the first version of
  * this announcement used `console.info`, the module demonstrably loaded, and
- * nothing was printed. An announcement that does not reach the operator is
- * the same silence it exists to fix.
+ * nothing printed.
+ *
+ * Not stdout either: a machine-readable reporter owns that stream. Writing
+ * this line there put it ahead of the document under
+ * `vitest --reporter=json` and the output stopped parsing -- measured, after
+ * Shiori asked the question. stderr carries diagnostics, stdout carries the
+ * artifact, and the announcement is a diagnostic.
  */
 function emit(line: string): void {
-  process.stdout.write(`${line}\n`);
+  process.stderr.write(`${line}\n`);
 }
 
 /**
@@ -58,6 +63,38 @@ function tokenPresence(token: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Why this token cannot write `<ns_root>/episodic`, or null if it plausibly can.
+ *
+ * Mirrors the server's rule rather than approximating it. `_namespace_matches`
+ * in musubi compares segment COUNTS and `*` spans exactly one segment, so a
+ * seat scope `<tenant>/<presence>/*:rw` matches a namespace of exactly three
+ * segments and nothing else. A prefix test is NOT equivalent and misses the
+ * configuration most likely to be tried next: `<presence>/live-smoke` is a
+ * prefix match on the presence and still 403s, because the namespace it builds
+ * has four segments. (Caught by Shiori on review -- the first version of this
+ * check was silent on exactly the trap that motivated the file.)
+ *
+ * Advisory only. The server decides; this explains a failure rather than
+ * predicting one.
+ */
+function unwritableReason(nsRoot: string, presence: string | null): string | null {
+  if (presence === null) return null;
+  const namespace = `${nsRoot}/episodic`;
+  if (!namespace.startsWith(`${presence}/`)) {
+    return `ns_root ${nsRoot} is outside token presence ${presence}.`;
+  }
+  const expected = presence.split("/").length + 1;
+  const actual = namespace.split("/").length;
+  if (actual !== expected) {
+    return (
+      `namespace ${namespace} has ${actual} segments; a seat scope matches exactly ` +
+      `${expected} (presence ${presence} plus one plane), and musubi compares segment counts.`
+    );
+  }
+  return null;
 }
 
 /**
@@ -94,10 +131,11 @@ function announceLiveTarget(): void {
     `[live] base_url=${BASE_URL} ns_root=${NS_ROOT} (from ${source}) ` +
       `namespace=${NS_ROOT}/episodic token_presence=${presence ?? "unknown"}`,
   );
-  if (presence !== null && !`${NS_ROOT}/episodic`.startsWith(`${presence}/`)) {
+  const reason = unwritableReason(NS_ROOT, presence);
+  if (reason !== null) {
     emit(
-      `[live] NOTE: ns_root ${NS_ROOT} is outside token presence ${presence}. ` +
-        "A write 403 here means the token cannot reach the namespace, not that the service is down.",
+      `[live] NOTE: ${reason} A write 403 here means the token cannot reach the ` +
+        "namespace, not that the service is down.",
     );
   }
 }
