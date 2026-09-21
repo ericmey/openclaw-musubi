@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.10](https://github.com/ericmey/openclaw-musubi/compare/v2.0.9...v2.0.10) (2026-09-21)
+
+
+### Bug Fixes
+
+* **capture:** skip configured session-key globs ([#72](https://github.com/ericmey/openclaw-musubi/issues/72)) ([64cd388](https://github.com/ericmey/openclaw-musubi/commit/64cd388510cd68e67b86de5a1b2773302bc2784c))
+* **delivery:** trust persisted capture dedup evidence ([#74](https://github.com/ericmey/openclaw-musubi/issues/74)) ([52f2afe](https://github.com/ericmey/openclaw-musubi/commit/52f2afedb654b1162402c987ab249ad9ac5b57dd))
+
 ## [2.0.9](https://github.com/ericmey/openclaw-musubi/compare/v2.0.8...v2.0.9) (2026-09-21)
 
 
