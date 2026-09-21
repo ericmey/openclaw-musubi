@@ -77,8 +77,13 @@ function tokenPresence(token: string | undefined): string | null {
  * has four segments. (Caught by Shiori on review -- the first version of this
  * check was silent on exactly the trap that motivated the file.)
  *
- * Advisory only. The server decides; this explains a failure rather than
- * predicting one.
+ * Advisory only, and it can raise a false alarm. It reasons from the PRESENCE
+ * claim while the server authorises from SCOPE, and those diverge on at least
+ * one real credential: `musubi-operator-aoi` presents `aoi/operator` with
+ * scope `aoi/command-chair/*:rw`, so an `aoi/command-chair` run on that token
+ * warns about a write it can actually perform. (Shiori, reviewing the fix to
+ * her own earlier finding.) The wording hedges accordingly -- a diagnostic
+ * that states more than it knows is the failure this file exists to end.
  */
 function unwritableReason(nsRoot: string, presence: string | null): string | null {
   if (presence === null) return null;
@@ -134,8 +139,11 @@ function announceLiveTarget(): void {
   const reason = unwritableReason(NS_ROOT, presence);
   if (reason !== null) {
     emit(
-      `[live] NOTE: ${reason} A write 403 here means the token cannot reach the ` +
-        "namespace, not that the service is down.",
+      `[live] NOTE: ${reason} Read as: if a write 403s here, suspect the token's ` +
+        "reach before the service. Inferred from the presence claim, which is a " +
+        "reliable proxy for scope on a seat token and not on every token -- " +
+        "musubi-operator-aoi carries presence aoi/operator with scope " +
+        "aoi/command-chair/*:rw, and on that credential this note is a false alarm.",
     );
   }
 }
