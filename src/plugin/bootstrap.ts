@@ -10,6 +10,8 @@ import {
   type CaptureDiagnosticsSnapshot,
   type CaptureSkipReason,
   getProcessCaptureDiagnostics,
+  isAgentEndHookRegistered,
+  markAgentEndHookRegistered,
 } from "../capture/diagnostics.js";
 import type { CaptureEvent } from "../capture/translate.js";
 import { type AuthoredMusubiConfig, type MusubiConfig, MusubiConfigSchema } from "../config.js";
@@ -34,8 +36,6 @@ if (!FormatRegistry.Has("uri")) {
     }
   });
 }
-
-let agentEndHookRegistered = false;
 
 export type RegisterOptions = {
   readonly api: OpenClawPluginApi;
@@ -127,7 +127,7 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
       logCaptureDiagnostic(api, captureDiagnostics, "enqueue_failed");
     }
   });
-  agentEndHookRegistered = true;
+  markAgentEndHookRegistered();
 
   api.registerService({
     id: "musubi-memory",
@@ -489,7 +489,7 @@ function captureStatus(
 ): CaptureDiagnosticsSnapshot & { readonly hookRegistered: boolean } {
   return {
     ...diagnostics.snapshot(),
-    hookRegistered: agentEndHookRegistered,
+    hookRegistered: isAgentEndHookRegistered(),
   };
 }
 

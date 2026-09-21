@@ -26,6 +26,11 @@ const roots: string[] = [];
 
 beforeEach(() => {
   getProcessCaptureDiagnostics().reset();
+  // Hook registration is process-wide by design; clear it so each test starts
+  // from "not registered" and assertions below cannot pass on a sibling's state.
+  delete (globalThis as typeof globalThis & { [key: symbol]: boolean | undefined })[
+    Symbol.for("openclaw-musubi.agent-end-hook-registered.v1")
+  ];
 });
 
 afterEach(() => {
@@ -278,6 +283,34 @@ describe("passive capture diagnostics", () => {
     } finally {
       await primary.getService().stop();
     }
+  });
+
+  it("reports agent_end hook registration process-wide, not per module instance", async () => {
+    const primary = makeApi();
+    registerResolved({ api: primary.api, rawConfig: config() });
+
+    const status = primary.api.registerGatewayMethod as unknown as {
+      mock: {
+        calls: [string, (ctx: { respond: (ok: boolean, body: unknown) => unknown }) => unknown][];
+      };
+    };
+    const statusCall = status.mock.calls.find(([name]) => name === "musubi.status");
+    if (!statusCall) throw new Error("musubi.status was not registered");
+    let body: { capture: { hookRegistered: boolean } } | undefined;
+    statusCall[1]({
+      respond: (_ok, value) => {
+        body = value as typeof body;
+        return undefined;
+      },
+    });
+    expect(body?.capture.hookRegistered).toBe(true);
+
+    // An embedded re-run gets a fresh module registry. Registration state must
+    // survive that, or the instance owning the status surface reports
+    // hookRegistered: false while the shared funnel shows live capture.
+    vi.resetModules();
+    const fresh = await import("../../src/capture/diagnostics.js");
+    expect(fresh.isAgentEndHookRegistered()).toBe(true);
   });
 
   it("does not let a superseded service stop tear down the current authority", async () => {
