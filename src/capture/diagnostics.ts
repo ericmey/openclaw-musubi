@@ -1,5 +1,6 @@
 export type CaptureSkipReason =
   | "capture_disabled"
+  | "session_filtered"
   | "event_not_object"
   | "messages_missing"
   | "assistant_missing"
@@ -18,6 +19,7 @@ export type CaptureDiagnosticsSnapshot = {
 
 const SKIP_REASONS: readonly CaptureSkipReason[] = [
   "capture_disabled",
+  "session_filtered",
   "event_not_object",
   "messages_missing",
   "assistant_missing",

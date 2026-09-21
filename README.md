@@ -68,7 +68,10 @@ placeholders are rejected locally before the provider registers.
             "defaultId": "owner/openclaw",
             "perAgent": { "vesper": "vesper/openclaw" }
           },
-          "capture": { "completedTurns": true }
+          "capture": {
+            "completedTurns": true,
+            "skipSessionKeys": ["agent:*:ops-*"]
+          }
         }
       }
     }

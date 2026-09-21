@@ -101,6 +101,7 @@ export const MusubiConfigSchema = Type.Object(
       Type.Object(
         {
           completedTurns: Type.Optional(Type.Boolean()),
+          skipSessionKeys: Type.Optional(Type.Array(NonBlankString)),
           /** Deprecated alias for completedTurns. */
           mirrorOpenClawMemory: Type.Optional(Type.Boolean()),
         },

@@ -57,6 +57,11 @@
       "label": "Capture Completed Turns",
       "help": "Durably queue completed OpenClaw turns into Musubi episodic memory."
     },
+    "capture.skipSessionKeys": {
+      "label": "Skipped Capture Sessions",
+      "advanced": true,
+      "help": "Session-key globs that must never be captured. Use * as a wildcard, for example agent:*:ops-*."
+    },
     "thoughts.enabled": {
       "label": "Legacy Thought Delivery",
       "help": "Deprecated and inactive in this release. The old inbound SSE consumer had no OpenClaw context-delivery contract and is not registered by the first-class provider."
@@ -140,6 +145,13 @@
         "properties": {
           "completedTurns": {
             "type": "boolean"
+          },
+          "skipSessionKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "\\S"
+            }
           },
           "mirrorOpenClawMemory": {
             "type": "boolean"

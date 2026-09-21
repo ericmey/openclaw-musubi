@@ -13,7 +13,10 @@ import type { OpenClawPluginApi } from "../../src/api.js";
 import { getProcessCaptureDiagnostics } from "../../src/capture/diagnostics.js";
 import { registerMusubi } from "../../src/plugin/bootstrap.js";
 
-type AgentEndHandler = (event: unknown, ctx: { agentId?: string }) => Promise<void>;
+type AgentEndHandler = (
+  event: unknown,
+  ctx: { agentId?: string; sessionKey?: string },
+) => Promise<void>;
 type Service = {
   start(ctx: { stateDir: string }): Promise<void> | void;
   stop(): Promise<void> | void;
@@ -30,7 +33,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function config(capture?: { completedTurns?: boolean }) {
+function config(capture?: { completedTurns?: boolean; skipSessionKeys?: string[] }) {
   return {
     core: {
       baseUrl: "https://musubi.test",
@@ -110,6 +113,7 @@ describe("passive capture diagnostics", () => {
       enqueueFailed: 0,
       skipped: {
         capture_disabled: 0,
+        session_filtered: 0,
         event_not_object: 1,
         messages_missing: 1,
         assistant_missing: 1,
@@ -146,6 +150,46 @@ describe("passive capture diagnostics", () => {
       enqueued: 0,
       skipped: { capture_disabled: 1 },
     });
+  });
+
+  it("logs and skips matching operator sessions while capturing the same turn normally", async () => {
+    const { api, getHandler, getService, logger } = makeApi();
+    const registered = registerResolved({
+      api,
+      rawConfig: config({ skipSessionKeys: ["agent:*:ops-*"] }),
+    });
+    const stateDir = mkdtempSync(join(tmpdir(), "openclaw-musubi-session-filter-"));
+    roots.push(stateDir);
+    await getService().start({ stateDir });
+    const event = {
+      messages: [
+        { role: "user", content: "operator check" },
+        { role: "assistant", content: "healthy" },
+      ],
+    };
+
+    try {
+      await getHandler()(event, { agentId: "aoi", sessionKey: "agent:aoi:ops-health" });
+      expect(registered.captureDiagnostics.snapshot()).toMatchObject({
+        observed: 1,
+        translated: 0,
+        enqueued: 0,
+        skipped: { session_filtered: 1 },
+      });
+      expect(logger.info.mock.calls.flat().join("\n")).toMatch(
+        /outcome=session_filtered[\s\S]*"session_filtered":1/u,
+      );
+
+      await getHandler()(event, { agentId: "aoi", sessionKey: "agent:aoi:discord-main" });
+      expect(registered.captureDiagnostics.snapshot()).toMatchObject({
+        observed: 2,
+        translated: 1,
+        enqueued: 1,
+        skipped: { session_filtered: 1 },
+      });
+    } finally {
+      await getService().stop();
+    }
   });
 
   it("dispatches through OpenClaw's real harness side-effect path and reaches durable enqueue", async () => {

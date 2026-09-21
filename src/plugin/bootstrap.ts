@@ -91,13 +91,19 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
 
   registerTools(api, client, config, delivery);
 
-  api.on("agent_end", async (event: unknown, ctx: { agentId?: string }) => {
+  api.on("agent_end", async (event: unknown, ctx: { agentId?: string; sessionKey?: string }) => {
     captureDiagnostics.observe();
     const captureEnabled =
       config.capture?.completedTurns ?? config.capture?.mirrorOpenClawMemory ?? true;
     if (!captureEnabled) {
       captureDiagnostics.skip("capture_disabled");
       logCaptureDiagnostic(api, captureDiagnostics, "capture_disabled");
+      return;
+    }
+    const skippedBy = matchingSessionKeyGlob(ctx.sessionKey, config.capture?.skipSessionKeys);
+    if (skippedBy !== undefined) {
+      captureDiagnostics.skip("session_filtered");
+      logCaptureDiagnostic(api, captureDiagnostics, "session_filtered");
       return;
     }
     const translated = translateAgentEndEventWithReason(event, ctx.agentId);
@@ -503,7 +509,24 @@ type CaptureDiagnosticOutcome =
 const NOTABLE_CAPTURE_OUTCOMES = new Set<CaptureDiagnosticOutcome>([
   "service_started",
   "enqueue_failed",
+  // A configured exclusion must be visible for every skipped turn so a broad
+  // glob cannot silently suppress legitimate capture.
+  "session_filtered",
 ]);
+
+function matchingSessionKeyGlob(
+  sessionKey: string | undefined,
+  patterns: readonly string[] | undefined,
+): string | undefined {
+  if (sessionKey === undefined) return undefined;
+  return patterns?.find((pattern) => {
+    const source = pattern
+      .split("*")
+      .map((literal) => literal.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&"))
+      .join(".*");
+    return new RegExp(`^${source}$`, "u").test(sessionKey);
+  });
+}
 
 function logCaptureDiagnostic(
   api: OpenClawPluginApi,
