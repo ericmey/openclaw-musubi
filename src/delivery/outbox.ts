@@ -37,6 +37,8 @@ export type DeliveryRow = {
   readonly died_at_ms: number | null;
   readonly state: DeliveryState;
   readonly object_id: string | null;
+  /** Tri-state evidence from CaptureResponse.dedup: 1 merge, 0 no merge, NULL unavailable. */
+  readonly write_dedup_merge: number | null;
 };
 
 export type OutboxHealth = {
@@ -119,7 +121,8 @@ export class DeliveryOutbox {
         verified_at_ms INTEGER,
         died_at_ms INTEGER,
         state TEXT NOT NULL DEFAULT 'pending',
-        object_id TEXT
+        object_id TEXT,
+        write_dedup_merge INTEGER
       );
       CREATE INDEX IF NOT EXISTS ix_delivery_outbox_ready
         ON delivery_outbox(state, next_try_at_ms);
@@ -140,6 +143,9 @@ export class DeliveryOutbox {
     );
     if (!columns.has("died_at_ms")) {
       this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN died_at_ms INTEGER");
+    }
+    if (!columns.has("write_dedup_merge")) {
+      this.#db.exec("ALTER TABLE delivery_outbox ADD COLUMN write_dedup_merge INTEGER");
     }
     // Backfill on EVERY pass, not just the one that adds the column. The
     // ALTER and this UPDATE are separate statements, so a process that died
@@ -302,15 +308,15 @@ export class DeliveryOutbox {
     }
   }
 
-  markAccepted(id: number, objectId: string): void {
+  markAccepted(id: number, objectId: string, dedupMerge?: boolean): void {
     this.#db
       .prepare(
         `UPDATE delivery_outbox
          SET state = 'accepted', object_id = ?, leased_at_ms = NULL, lease_owner = NULL,
-             last_error = NULL
+             last_error = NULL, write_dedup_merge = ?
          WHERE id = ?`,
       )
-      .run(objectId, id);
+      .run(objectId, dedupMerge === undefined ? null : dedupMerge ? 1 : 0, id);
   }
 
   markVerified(id: number, objectId: string, now = Date.now()): void {

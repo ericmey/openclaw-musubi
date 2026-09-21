@@ -150,6 +150,7 @@ const rememberRow: DeliveryRow = {
   died_at_ms: null,
   state: "pending",
   object_id: null,
+  write_dedup_merge: null,
 };
 
 describe("test_all_tools_honor_approval_hooks_when_required", () => {

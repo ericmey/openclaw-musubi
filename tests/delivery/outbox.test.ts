@@ -163,6 +163,37 @@ describe("DeliveryWorker", () => {
     outbox.close();
   });
 
+  it("persists capture-response dedup evidence across an accepted-state restart", async () => {
+    const fetch: FetchLike = async () =>
+      new Response(
+        JSON.stringify({
+          object_id: "obj-1",
+          namespace: item().namespace,
+          content: "longer canonical content kept by the server",
+          tags: [],
+        }),
+        { status: 200 },
+      );
+    const { path, outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.markAccepted(row.id, "obj-1", true);
+    outbox.close();
+
+    const reopened = new DeliveryOutbox(path);
+    expect(reopened.row(row.id)?.write_dedup_merge).toBe(1);
+    const worker = new DeliveryWorker({
+      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      config,
+      outbox: reopened,
+      logger,
+    });
+
+    worker.start();
+    expect((await worker.awaitTerminal(row.id, 1000))?.state).toBe("verified");
+    await worker.stop();
+    reopened.close();
+  });
+
   it("turns 401 into durable dead state instead of retrying forever", async () => {
     const fetch: FetchLike = async () => new Response("unauthorized", { status: 401 });
     const { outbox } = open();
@@ -227,7 +258,7 @@ describe("DeliveryWorker", () => {
     outbox.close();
   });
 
-  it("verifies via server dedup-merge when readback content differs but carries the receipt tag", async () => {
+  it("falls back to the receipt tag when an older server omits dedup evidence", async () => {
     // The episodic plane merges factually-compatible near-duplicates into
     // the EXISTING row (longer-wins content, tag union) and returns that
     // row's object_id. Readback content then legitimately differs from the
@@ -258,6 +289,76 @@ describe("DeliveryWorker", () => {
     worker.start();
     const terminal = await worker.awaitTerminal(row.id, 1000);
     expect(terminal).toMatchObject({ state: "verified", object_id: "obj-1" });
+    await worker.stop();
+    outbox.close();
+  });
+
+  it("verifies a declared dedup-merge without relying on readback receipt tags", async () => {
+    const fetch: FetchLike = async (_url, init) => {
+      if (init.method === "POST") {
+        return new Response(
+          JSON.stringify({ object_id: "obj-1", state: "provisional", dedup: { mode: "merge" } }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          object_id: "obj-1",
+          namespace: item().namespace,
+          content: "longer canonical content kept by the server",
+          tags: [],
+        }),
+        { status: 200 },
+      );
+    };
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    const worker = new DeliveryWorker({
+      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      config,
+      outbox,
+      logger,
+    });
+
+    worker.start();
+    expect(await worker.awaitTerminal(row.id, 1000)).toMatchObject({
+      state: "verified",
+      object_id: "obj-1",
+      write_dedup_merge: 1,
+    });
+    await worker.stop();
+    outbox.close();
+  });
+
+  it("does not use the receipt heuristic when the server explicitly reports no dedup", async () => {
+    const fetch: FetchLike = async (_url, init) => {
+      if (init.method === "POST") {
+        return new Response(JSON.stringify({ object_id: "obj-1", dedup: null }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          object_id: "obj-1",
+          namespace: item().namespace,
+          content: "unexpected different content",
+          tags: [`openclaw:idem-${item().idempotencyKey}`],
+        }),
+        { status: 200 },
+      );
+    };
+    const { outbox } = open();
+    const row = outbox.enqueue(item());
+    const worker = new DeliveryWorker({
+      client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
+      config,
+      outbox,
+      logger,
+    });
+
+    worker.start();
+    expect(await worker.awaitTerminal(row.id, 1000)).toMatchObject({
+      state: "dead",
+      write_dedup_merge: 0,
+    });
     await worker.stop();
     outbox.close();
   });

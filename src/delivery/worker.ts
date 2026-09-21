@@ -31,6 +31,11 @@ type ReadbackResponse = {
   tags?: unknown;
 };
 
+type CaptureResponse = {
+  object_id?: unknown;
+  dedup?: unknown;
+};
+
 export class DeliveryWorker {
   readonly #client: MusubiClient;
   readonly #config: MusubiConfig;
@@ -121,7 +126,7 @@ export class DeliveryWorker {
   async #deliver(row: DeliveryRow): Promise<void> {
     try {
       if (row.object_id) {
-        await this.#verify(row, row.object_id);
+        await this.#verify(row, row.object_id, storedDedupEvidence(row));
         return;
       }
 
@@ -133,12 +138,12 @@ export class DeliveryWorker {
         const existing = await this.#findByReceipt(row, presence.token);
         if (existing) {
           this.#outbox.markAccepted(row.id, existing);
-          await this.#verify(row, existing);
+          await this.#verify(row, existing, undefined);
           return;
         }
       }
       const tags = parseTags(row.tags_json);
-      const response = await this.#client.post<{ object_id?: unknown }>("/v1/episodic", {
+      const response = await this.#client.post<CaptureResponse>("/v1/episodic", {
         body: {
           namespace: row.namespace,
           content: row.content ?? "",
@@ -154,8 +159,9 @@ export class DeliveryWorker {
         this.#outbox.markFailed(row.id, "write returned no canonical object_id", false);
         return;
       }
-      this.#outbox.markAccepted(row.id, objectId);
-      await this.#verify(row, objectId);
+      const dedupMerge = captureDedupEvidence(response);
+      this.#outbox.markAccepted(row.id, objectId, dedupMerge);
+      await this.#verify(row, objectId, dedupMerge);
     } catch (error) {
       if (error instanceof AbortedError) {
         // Shutdown, not failure. Release the lease without charging the row a
@@ -206,7 +212,11 @@ export class DeliveryWorker {
     return first.object_id;
   }
 
-  async #verify(row: DeliveryRow, objectId: string): Promise<void> {
+  async #verify(
+    row: DeliveryRow,
+    objectId: string,
+    dedupMerge: boolean | undefined,
+  ): Promise<void> {
     let presence: PresenceContext;
     try {
       presence = resolvePresence(this.#config, {
@@ -232,14 +242,20 @@ export class DeliveryWorker {
         // row under a longer-wins content policy, unions the tags, and
         // returns the existing object. The merged row therefore carries
         // OUR receipt tag while its content legitimately differs from
-        // what we submitted. Byte-exact hashing can never accept that,
-        // so verify identity through the receipt tag instead of
-        // dead-lettering a delivery the server accepted.
-        if (this.#isDedupMerge(row, mismatches, got)) {
+        // what we submitted. Byte-exact hashing can never accept that.
+        // Prefer the write response's direct dedup evidence; only older
+        // servers that omit the field fall back to the unioned receipt tag.
+        const contentOnlyMismatch = mismatches.length === 1 && mismatches[0] === "content_sha256";
+        const verifiedByResponse = dedupMerge === true && contentOnlyMismatch;
+        const verifiedByFallback =
+          dedupMerge === undefined && this.#isDedupMerge(row, mismatches, got);
+        if (verifiedByResponse || verifiedByFallback) {
           this.#outbox.markVerified(row.id, objectId);
           this.#logger.info(
             `musubi: verified ${row.namespace}/${objectId} via server dedup-merge ` +
-              "(canonical content differs from submission; receipt tag present)",
+              `(canonical content differs from submission; evidence=${
+                verifiedByResponse ? "capture_response" : "receipt_tag_fallback"
+              })`,
           );
           return;
         }
@@ -280,6 +296,25 @@ export class DeliveryWorker {
     const receiptTag = `${RECEIPT_TAG_PREFIX}${row.idem_key}`;
     return got.tags.some((tag) => tag === receiptTag);
   }
+}
+
+function captureDedupEvidence(response: CaptureResponse | undefined): boolean | undefined {
+  if (!response || !Object.hasOwn(response, "dedup")) return undefined;
+  if (response.dedup === null) return false;
+  if (
+    typeof response.dedup === "object" &&
+    !Array.isArray(response.dedup) &&
+    Object.values(response.dedup).every((value) => typeof value === "string")
+  ) {
+    return true;
+  }
+  return undefined;
+}
+
+function storedDedupEvidence(row: DeliveryRow): boolean | undefined {
+  if (row.write_dedup_merge === 1) return true;
+  if (row.write_dedup_merge === 0) return false;
+  return undefined;
 }
 
 /**
