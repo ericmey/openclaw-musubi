@@ -17,8 +17,92 @@ import { createRecentTool } from "../../src/tools/recent.js";
 
 const BASE_URL = process.env.MUSUBI_LIVE_BASE_URL;
 const TOKEN = process.env.MUSUBI_LIVE_TOKEN;
-const NS_ROOT = process.env.MUSUBI_LIVE_NS_ROOT ?? "harness/v2-smoke";
+const NS_ROOT_DEFAULT = "harness/v2-smoke";
+const NS_ROOT_FROM_ENV = process.env.MUSUBI_LIVE_NS_ROOT;
+const NS_ROOT = NS_ROOT_FROM_ENV ?? NS_ROOT_DEFAULT;
 const describeLive = BASE_URL && TOKEN ? describe : describe.skip;
+
+/**
+ * Write straight to stdout rather than through `console`.
+ *
+ * Vitest intercepts `console.*` from a test module and swallows what is
+ * emitted at import time -- verified here, not assumed: the first version of
+ * this announcement used `console.info`, the module demonstrably loaded, and
+ * nothing was printed. An announcement that does not reach the operator is
+ * the same silence it exists to fix.
+ */
+function emit(line: string): void {
+  process.stdout.write(`${line}\n`);
+}
+
+/**
+ * The presence this token actually carries, read from its own claims.
+ *
+ * Printed, never enforced: the server decides, and a token this test cannot
+ * parse is still a token the server may accept. Returns null rather than
+ * throwing so an opaque credential degrades to "unknown" instead of taking
+ * the suite down with it.
+ */
+function tokenPresence(token: string | undefined): string | null {
+  const segments = token?.split(".");
+  if (segments?.length !== 3) return null;
+  const encoded = segments[1];
+  if (encoded === undefined) return null;
+  try {
+    const body = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const claims: unknown = JSON.parse(
+      Buffer.from(body + "=".repeat((4 - (body.length % 4)) % 4), "base64").toString("utf8"),
+    );
+    const presence = (claims as { presence?: unknown })?.presence;
+    return typeof presence === "string" ? presence : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Say which target this run actually resolved, or why it did not run at all.
+ *
+ * `NS_ROOT` decides whether the suite can write, and it was taken from a
+ * silent default. A green from this suite was therefore unreproducible by
+ * construction: the one variable that determines the outcome never appeared
+ * in the output anyone pasted. The skip is the same defect in the other
+ * direction -- `describe.skip` is the "2 skipped" in every gate run, and a
+ * suite that did not run reads identically to one that passed.
+ *
+ * The namespace is `<tenant>/<presence>/<plane>` and seat scopes are pinned
+ * to three segments (`_namespace_matches` in musubi compares segment COUNTS
+ * and `*` spans exactly one), so the default tenant `harness` is unwritable
+ * by every seat token that exists. That is a decision for the owner, not for
+ * this file; this only makes the resolved value visible either way.
+ */
+function announceLiveTarget(): void {
+  if (!BASE_URL || !TOKEN) {
+    const missing = [
+      BASE_URL ? null : "MUSUBI_LIVE_BASE_URL",
+      TOKEN ? null : "MUSUBI_LIVE_TOKEN",
+    ].filter((name): name is string => name !== null);
+    emit(
+      `[live] SKIPPED -- not run, not passed. Missing ${missing.join(" and ")}. ` +
+        "These tests are the skipped entries in this suite's summary.",
+    );
+    return;
+  }
+  const presence = tokenPresence(TOKEN);
+  const source = NS_ROOT_FROM_ENV ? "MUSUBI_LIVE_NS_ROOT" : `default (${NS_ROOT_DEFAULT})`;
+  emit(
+    `[live] base_url=${BASE_URL} ns_root=${NS_ROOT} (from ${source}) ` +
+      `namespace=${NS_ROOT}/episodic token_presence=${presence ?? "unknown"}`,
+  );
+  if (presence !== null && !`${NS_ROOT}/episodic`.startsWith(`${presence}/`)) {
+    emit(
+      `[live] NOTE: ns_root ${NS_ROOT} is outside token presence ${presence}. ` +
+        "A write 403 here means the token cannot reach the namespace, not that the service is down.",
+    );
+  }
+}
+
+announceLiveTarget();
 
 const config: MusubiConfig = {
   core: { baseUrl: BASE_URL ?? "https://disabled.invalid", token: TOKEN ?? "disabled" },
