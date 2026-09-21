@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { FormatRegistry } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
-import { getGlobalPluginRegistry, type OpenClawPluginApi } from "../api.js";
+import type { OpenClawPluginApi } from "../api.js";
 import {
   type CaptureDiagnostics,
   type CaptureDiagnosticsSnapshot,
   type CaptureSkipReason,
   getProcessCaptureDiagnostics,
+  isAgentEndHookRegistered,
+  markAgentEndHookRegistered,
 } from "../capture/diagnostics.js";
 import type { CaptureEvent } from "../capture/translate.js";
 import { type AuthoredMusubiConfig, type MusubiConfig, MusubiConfigSchema } from "../config.js";
@@ -125,6 +127,7 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
       logCaptureDiagnostic(api, captureDiagnostics, "enqueue_failed");
     }
   });
+  markAgentEndHookRegistered();
 
   api.registerService({
     id: "musubi-memory",
@@ -484,13 +487,9 @@ function formatStatus(
 function captureStatus(
   diagnostics: CaptureDiagnostics,
 ): CaptureDiagnosticsSnapshot & { readonly hookRegistered: boolean } {
-  const registry = getGlobalPluginRegistry();
   return {
     ...diagnostics.snapshot(),
-    hookRegistered:
-      registry?.typedHooks.some(
-        (hook) => hook.pluginId === "musubi" && hook.hookName === "agent_end",
-      ) ?? false,
+    hookRegistered: isAgentEndHookRegistered(),
   };
 }
 

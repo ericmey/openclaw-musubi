@@ -27,6 +27,9 @@ const SKIP_REASONS: readonly CaptureSkipReason[] = [
 ];
 
 const PROCESS_CAPTURE_DIAGNOSTICS = Symbol.for("openclaw-musubi.capture-diagnostics.v1");
+const PROCESS_AGENT_END_HOOK_REGISTERED = Symbol.for(
+  "openclaw-musubi.agent-end-hook-registered.v1",
+);
 
 /**
  * Process-local, content-free instrumentation for the passive capture seam.
@@ -106,4 +109,25 @@ export function getProcessCaptureDiagnostics(): CaptureDiagnostics {
     root[PROCESS_CAPTURE_DIAGNOSTICS] = diagnostics;
   }
   return diagnostics;
+}
+
+/**
+ * Registration of the `agent_end` hook is process-wide for the same reason the
+ * diagnostic funnel above is: with one registration per embedded run, the
+ * instance that owns the status surface is not necessarily the instance that
+ * registered the hook. A module-local flag would report `hookRegistered: false`
+ * from a sibling instance while that shared funnel shows live capture activity.
+ */
+export function markAgentEndHookRegistered(): void {
+  const root = globalThis as typeof globalThis & {
+    [key: symbol]: boolean | undefined;
+  };
+  root[PROCESS_AGENT_END_HOOK_REGISTERED] = true;
+}
+
+export function isAgentEndHookRegistered(): boolean {
+  const root = globalThis as typeof globalThis & {
+    [key: symbol]: boolean | undefined;
+  };
+  return root[PROCESS_AGENT_END_HOOK_REGISTERED] === true;
 }
