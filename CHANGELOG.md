@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.9](https://github.com/ericmey/openclaw-musubi/compare/v2.0.8...v2.0.9) (2026-09-21)
+
+
+### Bug Fixes
+
+* **delivery:** backdate the died_at_ms backfill past the alert window ([#69](https://github.com/ericmey/openclaw-musubi/issues/69)) ([7710f2d](https://github.com/ericmey/openclaw-musubi/commit/7710f2d9fd24658e9bf0214faf171be055cb2826))
+
 ## [2.0.8](https://github.com/ericmey/openclaw-musubi/compare/v2.0.7...v2.0.8) (2026-09-20)
 
 
