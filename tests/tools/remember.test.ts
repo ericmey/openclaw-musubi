@@ -25,6 +25,7 @@ function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
     died_at_ms: null,
     state: "pending",
     object_id: null,
+    write_dedup_merge: null,
     ...overrides,
   };
 }
