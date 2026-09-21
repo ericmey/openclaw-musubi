@@ -483,6 +483,69 @@ describe("DeliveryOutbox degradation lifecycle", () => {
     reopened.close();
   });
 
+  it("does not alarm on the upgrade itself for rows that died long before it", () => {
+    const { path, outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.markFailed(row.id, "permanent rejection", false);
+    outbox.close();
+
+    // A ledger arriving from a version predating `died_at_ms`: the column did
+    // not exist, so ALTER TABLE gives every historical dead row NULL.
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE delivery_outbox SET died_at_ms = NULL WHERE state = 'dead'");
+    raw.close();
+
+    const reopened = new DeliveryOutbox(path);
+    // Sampled AFTER the reopen, in production order: the migration runs in the
+    // constructor, and only then does anything ask for health.
+    const observedAt = Date.now();
+
+    // The moment that matters is the one the operator actually looks at: the
+    // upgrade itself, not two days after it. Backfilling with `Date.now()`
+    // makes every historical death read as brand new, so the first
+    // `/musubi-status` after an upgrade reports `degraded` with the whole
+    // lifetime dead count under `dead_recent` — an alarm the upgrade invented.
+    expect(reopened.health(observedAt)).toMatchObject({
+      dead: 1,
+      recentDead: 0,
+      degraded: false,
+    });
+    reopened.close();
+  });
+
+  it("keeps a backfilled dead row inspectable instead of pruning it at once", () => {
+    const { path, outbox } = open();
+    const row = outbox.enqueue(item());
+    outbox.markFailed(row.id, "permanent rejection", false);
+    outbox.close();
+
+    // Tama's case, and it rules out the obvious backfill value. A delivery
+    // enqueued well over the retention window ago can retry for weeks and die
+    // yesterday: `created_at_ms` is only a LOWER bound on death, and the gap is
+    // unbounded. Dating the backfill from it would make this row instantly
+    // prune-eligible and destroy the payload for a recent death — trading a
+    // false alarm for lost evidence.
+    const upgradedAt = Date.now();
+    const raw = new DatabaseSync(path);
+    raw.exec(
+      `UPDATE delivery_outbox
+       SET died_at_ms = NULL, created_at_ms = ${upgradedAt - 40 * DAY}
+       WHERE state = 'dead'`,
+    );
+    raw.close();
+
+    const reopened = new DeliveryOutbox(path);
+    const observedAt = Date.now();
+    expect(reopened.health(observedAt)).toMatchObject({ recentDead: 0, degraded: false });
+    // Survives the upgrade-day prune, and keeps very nearly the full window.
+    expect(reopened.prune(observedAt)).toBe(0);
+    expect(reopened.prune(observedAt + 27 * DAY)).toBe(0);
+    expect(reopened.row(row.id)?.last_error).toContain("permanent rejection");
+    // Still retired on schedule rather than pinned forever.
+    expect(reopened.prune(observedAt + 31 * DAY)).toBe(1);
+    reopened.close();
+  });
+
   it("releases a cancelled lease without charging the row a failure", () => {
     const { outbox } = open();
     const row = outbox.enqueue(item());

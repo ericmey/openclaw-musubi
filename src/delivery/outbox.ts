@@ -72,6 +72,17 @@ const MAX_RETRY_DELAY_MS = 7 * 24 * 60 * 60 * 1000;
  * Health reports the full `dead` count either way — only the alarm is windowed.
  */
 const DEAD_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * How far back an unknown historical death is dated by the backfill.
+ *
+ * A full window of slack, not one tick: the sentinel is computed from the
+ * migration's clock while `health(now)` is evaluated against the caller's,
+ * and those differ by at least the milliseconds between reopening the ledger
+ * and asking it a question. `DEAD_ALERT_WINDOW_MS + 1` lands back inside the
+ * alert window for any positive drift. Costs two days of the 30-day
+ * retention, which the backfill's own comment and its tests both state.
+ */
+const BACKFILL_DEATH_BACKDATE_MS = 2 * DEAD_ALERT_WINDOW_MS;
 
 /**
  * Durable delivery ledger. A passive capture is accepted only after this
@@ -139,11 +150,37 @@ export class DeliveryOutbox {
     // never pruned (the `IS NOT NULL` predicate in prune()), which is
     // precisely the latched-`degraded` failure this column was added to end.
     // Idempotent: once every dead row has a timestamp this matches nothing.
+    // Stamped with an explicit "died before this upgrade, exact time unknown"
+    // sentinel, dated a clear margin before the alert window opens (see
+    // BACKFILL_DEATH_BACKDATE_MS). Two constraints have to
+    // hold at once and each rules out the obvious answer to the other.
+    //
+    //   `Date.now()` fails the alarm constraint. A ledger upgraded from a
+    //   version predating this column hands every historical dead row to the
+    //   backfill at once, so dating them "now" puts deaths from weeks ago
+    //   inside DEAD_ALERT_WINDOW_MS: the first `/musubi-status` after an
+    //   upgrade reports `degraded` with the entire lifetime dead count under
+    //   `dead_recent` — an alarm the upgrade invented, which is the class of
+    //   un-actionable signal this column exists to end.
+    //
+    //   `created_at_ms` fails the retention constraint. It is only a LOWER
+    //   bound on death, and the gap is unbounded: a delivery enqueued 40 days
+    //   ago that retried for weeks and died yesterday would be stamped 40 days
+    //   old and deleted by the very next prune(), destroying the post-mortem
+    //   payload for a death that happened yesterday. Trading a false alarm for
+    //   lost evidence is not a fix.
+    //
+    // The sentinel satisfies both: clear of the alert window, so it raises
+    // nothing, and clear by a bounded amount — one extra window, see
+    // BACKFILL_DEATH_BACKDATE_MS — so every backfilled row keeps
+    // DEAD_RETENTION_MS minus two days of inspection from the upgrade.
+    // It claims no per-row death time, which is correct — that data does not
+    // exist and no arithmetic here can recover it.
     this.#db
       .prepare(
         "UPDATE delivery_outbox SET died_at_ms = ? WHERE state = 'dead' AND died_at_ms IS NULL",
       )
-      .run(Date.now());
+      .run(Date.now() - BACKFILL_DEATH_BACKDATE_MS);
   }
 
   enqueue(item: EnqueueDelivery): DeliveryRow {
