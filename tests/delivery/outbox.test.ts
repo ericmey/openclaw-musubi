@@ -174,21 +174,24 @@ describe("DeliveryWorker", () => {
         }),
         { status: 200 },
       );
-    const { outbox } = open();
+    const { path, outbox } = open();
     const row = outbox.enqueue(item());
     outbox.markAccepted(row.id, "obj-1", true);
-    expect(outbox.row(row.id)?.write_dedup_merge).toBe(1);
+    outbox.close();
+
+    const reopened = new DeliveryOutbox(path);
+    expect(reopened.row(row.id)?.write_dedup_merge).toBe(1);
     const worker = new DeliveryWorker({
       client: new MusubiClient({ baseUrl: config.core.baseUrl, token: "default", fetch }),
       config,
-      outbox,
+      outbox: reopened,
       logger,
     });
 
     worker.start();
     expect((await worker.awaitTerminal(row.id, 1000))?.state).toBe("verified");
     await worker.stop();
-    outbox.close();
+    reopened.close();
   });
 
   it("turns 401 into durable dead state instead of retrying forever", async () => {
