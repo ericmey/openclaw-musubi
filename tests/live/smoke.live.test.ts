@@ -18,7 +18,7 @@ import { createRecentTool } from "../../src/tools/recent.js";
 const BASE_URL = process.env.MUSUBI_LIVE_BASE_URL;
 const TOKEN = process.env.MUSUBI_LIVE_TOKEN;
 const NS_ROOT_DEFAULT = "harness/v2-smoke";
-const NS_ROOT_FROM_ENV = process.env.MUSUBI_LIVE_NS_ROOT;
+const NS_ROOT_FROM_ENV = process.env.MUSUBI_LIVE_NS_ROOT?.trim() || undefined;
 const NS_ROOT = NS_ROOT_FROM_ENV ?? NS_ROOT_DEFAULT;
 const describeLive = BASE_URL && TOKEN ? describe : describe.skip;
 
