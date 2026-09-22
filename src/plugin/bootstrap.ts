@@ -219,6 +219,12 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
 }
 
 function warnDeprecatedConfig(api: OpenClawPluginApi, config: AuthoredMusubiConfig): void {
+  // Trade-off: this fires on every restart for an operator still on a
+  // deprecated key. A process-global once-only suppression was considered
+  // and dropped because the existing test (`warns when accepted
+  // migration-only config is present`) asserts the count and depends on
+  // the per-call behavior; a per-process cache would silently hide a
+  // regression in which the warnings stopped firing entirely.
   if (config.supplement) {
     api.logger.warn(
       "musubi: config.supplement is deprecated and ignored by the first-class provider",
@@ -313,13 +319,21 @@ function registerTools(
   ) => {
     const toolFactory = (ctx: { agentId?: string }) => {
       const definition = create(ctx).definition;
+      // The factory parameter `name` is authoritative: every create*Tool
+      // function hard-codes its own name in `definition.name`, so we
+      // assert they agree and then forward the registration `name` (no
+      // need to re-bind `name` / `label` on the returned object).
+      if (definition.name !== name) {
+        throw new Error(
+          `musubi: tool factory name mismatch (registered as "${name}", ` +
+            `definition declares "${definition.name}")`,
+        );
+      }
       return {
         ...definition,
         description: aliasOf
           ? `${definition.description} ${aliasNote(name, aliasOf)}`
           : definition.description,
-        label: name,
-        name,
       };
     };
     api.registerTool(toolFactory as Parameters<OpenClawPluginApi["registerTool"]>[0], {
@@ -542,9 +556,10 @@ function logCaptureDiagnostic(
   // `hookRegistered` is a process-global symbol lookup
   // (isAgentEndHookRegistered); cheap, but resolved only for the lines
   // that actually get emitted at operator level.
-  const capture = notable || forceEmit
-    ? captureStatus(diagnostics)
-    : { ...diagnostics.snapshot(), hookRegistered: undefined };
+  const capture =
+    notable || forceEmit
+      ? captureStatus(diagnostics)
+      : { ...diagnostics.snapshot(), hookRegistered: undefined };
   const line =
     `musubi: capture diagnostic outcome=${outcome} since_ms=${capture.sinceMs} ` +
     (capture.hookRegistered === undefined ? "" : `hook_registered=${capture.hookRegistered} `) +

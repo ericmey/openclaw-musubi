@@ -54,8 +54,9 @@ export const RecentParameters = Type.Object(
     ),
     since: Type.Optional(
       Type.String({
+        format: "date-time",
         description:
-          "ISO-8601 timestamp lower bound. Returns only rows captured at or after this time. Absent = newest items, no time filter.",
+          "ISO-8601 timestamp lower bound. Returns only rows captured at or after this time. Absent = newest items, no time filter. Pre-epoch values are rejected.",
       }),
     ),
     tags: Type.Optional(

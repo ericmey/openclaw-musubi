@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [Unreleased]
+
+### Pending
+
+- Code-review hardening: `mergeRetryPolicy` is the source of truth for
+  retry overrides (omits `undefined` so partial overrides cannot
+  NaN-poison the loop); pre-epoch `since` values rejected in
+  `musubi_recent`; `musubi_get` now enforces the identity boundary
+  before the wire is hit; `musubi_recall` no longer falls back to
+  `console.warn`; Windows lease guard returns "alive" to avoid
+  double-write; abort-listener race in `#sleepUnlessAborted` closes
+  on `signal.aborted` recheck inside the listener; `PLANE_PATH`
+  consolidated in `retrieval/targets.ts`; topic array bounded to 32
+  entries of 256 chars; one-shot operator log on dead-letter rows;
+  cleanup error surfaced in doctor result; `biome.json` schema URL
+  bumped to 2.5.7.
+
 ## [2.0.11](https://github.com/ericmey/openclaw-musubi/compare/v2.0.10...v2.0.11) (2026-09-21)
 
 

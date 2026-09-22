@@ -107,12 +107,14 @@
         "additionalProperties": false,
         "properties": {
           "defaultId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "\\S"
           },
           "perAgent": {
             "type": "object",
             "additionalProperties": {
-              "type": "string"
+              "type": "string",
+              "pattern": "\\S"
             }
           }
         },

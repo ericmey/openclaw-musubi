@@ -367,15 +367,12 @@ function parseRetryAfter(header: string | null): number | undefined {
  * string. Callers that need additional fields (results, warnings,
  * tags) re-validate inside their own envelope gate.
  */
-export function assertObjectId(
-  value: unknown,
-  context: string,
-): { readonly object_id: string } {
+export function assertObjectId(value: unknown, context: string): { readonly object_id: string } {
   if (
     value === null ||
     typeof value !== "object" ||
     typeof (value as { object_id?: unknown }).object_id !== "string" ||
-    ((value as { object_id: string }).object_id.length === 0)
+    (value as { object_id: string }).object_id.length === 0
   ) {
     throw new ClientError(422, `server returned an invalid envelope (${context})`);
   }

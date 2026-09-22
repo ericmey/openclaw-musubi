@@ -434,9 +434,15 @@ export class DeliveryOutbox {
   }
 
   /**
-   * Drop rows past their retention. Verified rows carry no plaintext (it is
-   * cleared at verification) and go after 7 days; dead rows keep their
-   * payload for post-mortem and go after 30.
+   * Drop rows past their retention. Verified rows carry no plaintext (it
+   * is cleared at verification, not here) and go after 7 days; dead rows
+   * keep their payload for post-mortem and go after 30.
+   *
+   * Note: a row that was just `verified` will have its plaintext gone
+   * immediately at markVerified time; only the metadata row remains, so
+   * 7 days is purely storage-window hygiene. Operators looking to audit
+   * a recent success should query before that window elapses; the
+   * metadata alone is what survives a verified prune.
    */
   prune(now = Date.now()): number {
     const verified = this.#db

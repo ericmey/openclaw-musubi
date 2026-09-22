@@ -2,7 +2,7 @@ import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
-import { PLANE_PATH, buildRetrieveTargets } from "../retrieval/targets.js";
+import { buildRetrieveTargets, PLANE_PATH } from "../retrieval/targets.js";
 import { SearchParameters, type SearchParams } from "./parameters.js";
 
 /**

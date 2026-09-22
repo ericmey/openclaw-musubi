@@ -69,8 +69,12 @@ export const MusubiConfigSchema = Type.Object(
     ),
     presence: Type.Object(
       {
-        defaultId: Type.String(),
-        perAgent: Type.Optional(Type.Record(Type.String(), Type.String())),
+        defaultId: NonBlankString,
+        // Mirror the schema discipline applied to skipSessionKeys:
+        // a presence mapping to "" passes runtime validation (the
+        // resolver rejects it), but at the schema layer an empty
+        // value should not be admissible in the first place.
+        perAgent: Type.Optional(Type.Record(Type.String(), NonBlankString)),
       },
       { additionalProperties: false },
     ),
