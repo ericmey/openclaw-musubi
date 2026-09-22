@@ -26,11 +26,13 @@ export type CreateRecallToolOptions = {
   readonly config: MusubiConfig;
   readonly agentId?: string;
   /**
-   * Optional logger so the deprecation warning surfaces through the
-   * plugin host's structured-log channel. Falls back to `console.warn`
-   * when not provided so a forgotten wiring still emits a visible signal.
+   * Required logger so the deprecation warning surfaces through the
+   * plugin host's structured-log channel. Every plugin host provides
+   * one; bootstrap wires it explicitly to keep the warning inside the
+   * host's redaction pipeline (tokens are never to be logged via
+   * `console.*`, see SECURITY.md).
    */
-  readonly logger?: { warn(message: string): void };
+  readonly logger: { warn(message: string): void };
 };
 
 export type RecallTool = {
@@ -48,8 +50,7 @@ export function createRecallTool(options: CreateRecallToolOptions): RecallTool {
         "[DEPRECATED — use musubi_search] Search Musubi across every plane using the full hybrid + rerank pipeline. Removed in the next minor release.",
       parameters: RecallParameters,
       async execute(_toolCallId, params) {
-        const warn = logger?.warn ?? ((m: string) => console.warn(m));
-        warn(
+        logger.warn(
           "musubi_recall is deprecated; use musubi_search (canonical name per ADR 0032 / agent-tools spec). The alias drops in the next minor release.",
         );
         return executeSearch(options, params);

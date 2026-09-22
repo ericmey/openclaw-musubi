@@ -31,4 +31,24 @@ describe("retry policy", () => {
     expect(merged.baseDelayMs).toBe(DEFAULT_RETRY_POLICY.baseDelayMs);
     expect(merged.maxDelayMs).toBe(DEFAULT_RETRY_POLICY.maxDelayMs);
   });
+
+  it("test_merge_omits_undefined_fields_so_partial_overrides_do_not_nan_poison_defaults", () => {
+    // Regression: a caller spreading `{ maxAttempts: undefined }` used to
+    // overwrite the default with `undefined`, then the retry loop's
+    // `attempt < maxAttempts - 1` became `NaN < NaN` and broke forever.
+    const merged = mergeRetryPolicy({ maxAttempts: undefined as unknown as number });
+    expect(merged.maxAttempts).toBe(DEFAULT_RETRY_POLICY.maxAttempts);
+    expect(merged.baseDelayMs).toBe(DEFAULT_RETRY_POLICY.baseDelayMs);
+    expect(merged.maxRetryAfterMs).toBe(DEFAULT_RETRY_POLICY.maxRetryAfterMs);
+
+    // Zero is a legitimate override ("no retries"); it must NOT be
+    // collapsed back to the default.
+    const zeroMerged = mergeRetryPolicy({ maxAttempts: 0 });
+    expect(zeroMerged.maxAttempts).toBe(0);
+  });
+
+  it("test_merge_drops_keys_not_present_in_defaults", () => {
+    const merged = mergeRetryPolicy({ unknownField: "x" } as never);
+    expect(merged).not.toHaveProperty("unknownField");
+  });
 });

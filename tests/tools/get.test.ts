@@ -267,4 +267,27 @@ describe("createGetTool", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("Presence unresolved");
   });
+
+  it("test_get_fails_closed_when_namespace_owner_differs_from_resolved_presence", async () => {
+    // Mirror of the search/recent identity-boundary guard for exact reads.
+    // An agent supplied with a foreign `(plane, namespace, object_id)`
+    // triple must NOT be able to drill into the foreign object even if the
+    // resolved token would happen to authenticate it; the failure has to
+    // be visible BEFORE the GET, so the wire is never hit and the operator
+    // sees the misbinding instead of a quietly cross-fetched object.
+    const { fetch, calls } = createMockFetch([{ status: 200, body: { content: "leaked" } }]);
+    const tool = createGetTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("c", {
+      plane: "episodic",
+      namespace: "aoi/aoi-phone/episodic",
+      object_id: "x",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("identity boundary violation");
+    expect(result.content[0]?.text).toContain("aoi/aoi-phone/episodic");
+    expect(result.content[0]?.text).not.toContain("leaked");
+    expect(calls).toHaveLength(0);
+  });
 });

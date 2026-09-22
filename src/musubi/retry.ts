@@ -63,6 +63,19 @@ export function nextDelayMs(
   return Math.min(exponential + jitter, policy.maxDelayMs);
 }
 
+/**
+ * Merge a partial override on top of {@link DEFAULT_RETRY_POLICY}, omitting
+ * `undefined` fields so a caller spreading in `{ maxAttempts: undefined }`
+ * does not overwrite the default with `NaN`-poisoned comparisons in the
+ * retry loop. Numeric overrides of `0` are preserved (zero is a legitimate
+ * "no retries" answer); only `undefined` is treated as "no answer".
+ */
 export function mergeRetryPolicy(overrides: Partial<RetryPolicy> = {}): RetryPolicy {
-  return { ...DEFAULT_RETRY_POLICY, ...overrides };
+  return {
+    maxAttempts: overrides.maxAttempts ?? DEFAULT_RETRY_POLICY.maxAttempts,
+    baseDelayMs: overrides.baseDelayMs ?? DEFAULT_RETRY_POLICY.baseDelayMs,
+    jitterMs: overrides.jitterMs ?? DEFAULT_RETRY_POLICY.jitterMs,
+    maxDelayMs: overrides.maxDelayMs ?? DEFAULT_RETRY_POLICY.maxDelayMs,
+    maxRetryAfterMs: overrides.maxRetryAfterMs ?? DEFAULT_RETRY_POLICY.maxRetryAfterMs,
+  };
 }

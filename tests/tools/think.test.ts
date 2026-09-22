@@ -177,7 +177,7 @@ describe("test_all_tools_honor_approval_hooks_when_required", () => {
     const client = makeClient(fetch);
     const config = makeConfig();
 
-    const recall = createRecallTool({ client, config });
+    const recall = createRecallTool({ client, config, logger: { warn: () => {} } });
     const remember = createRememberTool({
       delivery: {
         enqueueExplicit: () => rememberRow,

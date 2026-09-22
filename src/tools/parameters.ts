@@ -147,8 +147,15 @@ export const ThinkParameters = Type.Object(
 );
 
 export type SearchParams = Static<typeof SearchParameters>;
-/** @deprecated Use {@link SearchParams}. Removed after one minor release. */
-export type RecallParams = SearchParams;
+/**
+ * @deprecated Use {@link SearchParams}. Removed after one minor release.
+ *
+ * Phantom-tagged intersection so this alias is structurally incompatible
+ * with {@link SearchParams} once removed: an existing caller typed as
+ * `RecallParams` would fail to typecheck on upgrade, surfacing the
+ * migration instead of silently switching to `SearchParams` semantics.
+ */
+export type RecallParams = SearchParams & { readonly __musubi_recall_legacy?: never };
 export type RememberParams = Static<typeof RememberParameters>;
 export type ThinkParams = Static<typeof ThinkParameters>;
 export type GetParams = Static<typeof GetParameters>;

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { AbortedError, MusubiError, RateLimitError } from "../musubi/errors.js";
+import { assertObjectId } from "../musubi/client.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
 import type { DeliveryOutbox, DeliveryRow, OutboxHealth } from "./outbox.js";
 
@@ -154,9 +155,19 @@ export class DeliveryWorker {
         token: presence.token,
         signal: this.#abortController.signal,
       });
-      const objectId = response?.object_id;
-      if (typeof objectId !== "string" || objectId.length === 0) {
-        this.#outbox.markFailed(row.id, "write returned no canonical object_id", false);
+      // Server-shape guard: the typed envelope is `T` via a cast in the
+      // client; a server drift would otherwise make object_id silently
+      // undefined and the row would dead-letter with a misleading
+      // message. Asserting here keeps the failure mode self-describing.
+      let objectId: string;
+      try {
+        objectId = assertObjectId(response, "POST /v1/episodic").object_id;
+      } catch (error) {
+        this.#outbox.markFailed(
+          row.id,
+          `write returned an invalid envelope: ${errorMessage(error)}`,
+          false,
+        );
         return;
       }
       const dedupMerge = captureDedupEvidence(response);

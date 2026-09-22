@@ -56,6 +56,39 @@ const PLANE_PATH: Record<GetParams["plane"], string> = {
   artifact: "/v1/artifacts",
 };
 
+/**
+ * Mirror the search/recent identity-boundary guard for exact reads.
+ *
+ * `musubi_get` drills into a single object whose `(plane, namespace,
+ * object_id)` triple comes from a recall row. If a foreign namespace
+ * reaches the tool — a stale system prompt, a copied-from-shared-result
+ * snippet, an explicit foreign probe — and the resolved token authenticates
+ * the foreign family, the server may return the foreign object under the
+ * caller's own request. ADR-0005 calls out the same class of failure on
+ * the retrieval path; the readback path is the deeper sink that turns a
+ * recall misbinding into concrete cited content.
+ *
+ * Fail closed before the GET: never merge, surface, or log a row whose
+ * namespace's owner differs from the configured presence. The operator
+ * sees the misbinding; the agent sees no object.
+ */
+function assertNamespaceInIdentityFamily(
+  expectedOwner: string,
+  namespace: string,
+  plane: GetParams["plane"],
+): string | undefined {
+  const rowOwner = namespace.split("/", 1)[0];
+  if (rowOwner === expectedOwner) return undefined;
+  return (
+    `Musubi identity boundary violation: get received namespace "${namespace}" ` +
+    `outside the configured identity "${expectedOwner}/…". No object was surfaced. ` +
+    `This means the object_id came from a recall row owned by a different ` +
+    `identity family — check ` +
+    `plugins.entries.musubi.config.core.perAgentTokens for this agent ` +
+    `before retrying (plane=${plane}).`
+  );
+}
+
 export function createGetTool(options: CreateGetToolOptions): GetTool {
   const { client, config, agentId } = options;
 
@@ -72,6 +105,25 @@ export function createGetTool(options: CreateGetToolOptions): GetTool {
           presence = resolvePresence(config, { agentId });
         } catch (err) {
           return toolError(`Presence unresolved: ${errorMessage(err)}`);
+        }
+
+        // Identity-boundary check FIRST, before any HTTP work or content
+        // handling. The recall row that fed the agent the object_id may
+        // have come from a foreign family (system-prompt drift, cross-
+        // agent snippet reuse, an explicit probe). Fail closed rather
+        // than hit the wire with a request the server will answer from a
+        // different identity family.
+        const expectedOwner = presence.presence.split("/", 1)[0] ?? "";
+        if (expectedOwner === "") {
+          return toolError(`Invalid presence "${presence.presence}"`);
+        }
+        const boundaryError = assertNamespaceInIdentityFamily(
+          expectedOwner,
+          params.namespace,
+          params.plane,
+        );
+        if (boundaryError !== undefined) {
+          return toolError(boundaryError);
         }
 
         const path = `${PLANE_PATH[params.plane]}/${encodeURIComponent(params.object_id)}`;

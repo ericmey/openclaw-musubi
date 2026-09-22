@@ -105,6 +105,14 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
               `Invalid 'since' value '${params.since}': expected ISO-8601 timestamp.`,
             );
           }
+          // Reject pre-epoch timestamps: `Date.parse` accepts them and the
+          // server expects a positive epoch-second float, so a negative or
+          // zero `since` would silently filter out the entire namespace.
+          if (sinceMs < 0) {
+            return toolError(
+              `Invalid 'since' value '${params.since}': timestamp is before the Unix epoch.`,
+            );
+          }
           // The wire field is epoch seconds; ISO strings are rejected server-side.
           since = sinceMs / 1000;
         }

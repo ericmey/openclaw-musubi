@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MusubiConfig } from "../../src/config.js";
 import { MusubiClient } from "../../src/musubi/client.js";
 import type { FetchLike } from "../../src/musubi/types.js";
 import { createRecallTool } from "../../src/tools/recall.js";
+
+const silentLogger = { warn: vi.fn() };
 
 function makeConfig(overrides: Partial<MusubiConfig> = {}): MusubiConfig {
   return {
@@ -46,14 +48,22 @@ function makeClient(fetch: FetchLike) {
 describe("createRecallTool", () => {
   it("test_recall_registered_as_optional_tool_not_required", () => {
     const { fetch } = createMockFetch([{ status: 200, body: { results: [] } }]);
-    const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: silentLogger,
+    });
     expect(tool.recommendedOptional).toBe(true);
     expect(tool.definition.name).toBe("musubi_recall");
   });
 
   it("test_recall_queries_retrieve_with_deep_mode", async () => {
     const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [] } }]);
-    const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: silentLogger,
+    });
 
     await tool.definition.execute("call-1", { query: "find the thing" });
 
@@ -70,7 +80,11 @@ describe("createRecallTool", () => {
     // strict-authorization path: one out-of-scope stored namespace
     // 403ed the entire retrieve.
     const { fetch, calls } = createMockFetch([{ status: 200, body: { results: [] } }]);
-    const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: silentLogger,
+    });
 
     await tool.definition.execute("c1", { query: "x", planes: ["curated"], limit: 3 });
     const curatedOnly = calls.splice(0, calls.length);
@@ -110,7 +124,11 @@ describe("createRecallTool", () => {
         },
       },
     ]);
-    const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: silentLogger,
+    });
 
     const result = await tool.definition.execute("call", { query: "preference" });
 
@@ -124,7 +142,11 @@ describe("createRecallTool", () => {
 
   it("test_recall_maps_core_unreachable_to_agent_visible_error", async () => {
     const { fetch } = createMockFetch([{ throw: new TypeError("fetch failed") }]);
-    const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: silentLogger,
+    });
 
     const result = await tool.definition.execute("call", { query: "x" });
 
@@ -143,6 +165,7 @@ describe("createRecallTool", () => {
         presence: { defaultId: "eric/openclaw", perAgent: { aoi: "eric/aoi" } },
       }),
       agentId: "aoi",
+      logger: silentLogger,
     });
 
     await tool.definition.execute("c", { query: "x" });
@@ -158,7 +181,11 @@ describe("createRecallTool", () => {
 
   it("returns friendly message on zero results", async () => {
     const { fetch } = createMockFetch([{ status: 200, body: { results: [] } }]);
-    const tool = createRecallTool({ client: makeClient(fetch), config: makeConfig() });
+    const tool = createRecallTool({
+      client: makeClient(fetch),
+      config: makeConfig(),
+      logger: silentLogger,
+    });
 
     const result = await tool.definition.execute("c", { query: "nothing matches" });
 

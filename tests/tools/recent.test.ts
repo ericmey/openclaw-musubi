@@ -136,6 +136,21 @@ describe("createRecentTool", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("test_since_rejects_pre_epoch_timestamps_so_negative_drift_cannot_silently_filter_everything", async () => {
+    // Regression: `Date.parse` accepts pre-epoch timestamps (e.g. ISO
+    // strings for the 1960s); the server expects a positive epoch-second
+    // float. Without the guard, a negative `since` would silently filter
+    // the entire namespace because every row's `created_epoch` is > 0.
+    const { fetch, calls } = createMockFetch([recent([])]);
+    const tool = createRecentTool({ client: makeClient(fetch), config: makeConfig() });
+
+    const result = await tool.definition.execute("c", { since: "1969-12-31T00:00:00Z" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/Invalid 'since'|before the Unix epoch/u);
+    expect(calls).toHaveLength(0);
+  });
+
   it("orders newest-first and renders the date from created_epoch", async () => {
     const { fetch } = createMockFetch([
       recent([row("older", EPOCH_2026_09_01), row("newer", EPOCH_2026_09_19)]),

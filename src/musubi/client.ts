@@ -10,7 +10,7 @@ import {
   ServerError,
   TimeoutError,
 } from "./errors.js";
-import { DEFAULT_RETRY_POLICY, nextDelayMs, type RetryPolicy } from "./retry.js";
+import { mergeRetryPolicy, nextDelayMs, type RetryPolicy } from "./retry.js";
 import type { ClientOptions, FetchLike, HttpMethod, RequestOptions } from "./types.js";
 
 const AUTH_HEADER = "Authorization";
@@ -60,12 +60,11 @@ export class MusubiClient {
     this.#baseUrl = normalized;
     this.#token = options.token;
     this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
-    const retry = { ...DEFAULT_RETRY_POLICY, ...(options.retry ?? {}) };
-    // A caller spreading in an explicit `undefined` would otherwise restore
-    // the unbounded in-band sleep this bound exists to prevent.
-    this.#retry = Number.isFinite(retry.maxRetryAfterMs)
-      ? retry
-      : { ...retry, maxRetryAfterMs: DEFAULT_RETRY_POLICY.maxRetryAfterMs };
+    // mergeRetryPolicy omits `undefined` fields so a caller passing
+    // `{ maxAttempts: undefined }` does not poison the loop's numeric
+    // comparisons with `NaN`, and falls back to DEFAULT_RETRY_POLICY
+    // for every field they did not name.
+    this.#retry = mergeRetryPolicy(options.retry);
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.#generateRequestId = options.generateRequestId ?? defaultIdGenerator;
     this.#generateIdempotencyKey = options.generateIdempotencyKey ?? defaultIdGenerator;
@@ -343,6 +342,37 @@ function parseRetryAfter(header: string | null): number | undefined {
     return Math.max(0, dateMs - Date.now());
   }
   return undefined;
+}
+
+/**
+ * Coerce a server response into the typed envelope the caller expects,
+ * throwing a {@link ClientError} when the shape drifts.
+ *
+ * The HTTP client surfaces `request<T>` as `T` via a single cast
+ * (`return attemptResult.value as T`); a server contract drift therefore
+ * becomes a typed field that is, in fact, `undefined`, and downstream
+ * code reads `undefined.something` or silently misclassifies. This guard
+ * catches the drift at the typed boundary instead — three call sites
+ * (capture response, retrieve response, readback response) cover every
+ * server round-trip the plugin makes.
+ *
+ * The guard is intentionally narrow: `object_id` is the only required
+ * string. Callers that need additional fields (results, warnings,
+ * tags) re-validate inside their own envelope gate.
+ */
+export function assertObjectId(
+  value: unknown,
+  context: string,
+): { readonly object_id: string } {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    typeof (value as { object_id?: unknown }).object_id !== "string" ||
+    ((value as { object_id: string }).object_id.length === 0)
+  ) {
+    throw new ClientError(422, `server returned an invalid envelope (${context})`);
+  }
+  return value as { readonly object_id: string };
 }
 
 function truncate(value: string, max = 200): string {
