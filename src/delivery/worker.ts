@@ -94,12 +94,17 @@ export class DeliveryWorker {
   }
 
   async awaitTerminal(rowId: number, timeoutMs = 1500): Promise<DeliveryRow | undefined> {
+    // Same exponential backoff as DeliveryController.awaitTerminal; see
+    // that comment for the rationale. Capped at 100ms so the upper end
+    // stays under one animation frame.
+    let intervalMs = 30;
     const deadline = Date.now() + timeoutMs;
     this.kick();
     while (Date.now() < deadline) {
       const row = this.#outbox.row(rowId);
       if (!row || row.state === "verified" || row.state === "dead") return row;
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      intervalMs = Math.min(intervalMs * 2, 100);
     }
     return this.#outbox.row(rowId);
   }

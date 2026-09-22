@@ -170,13 +170,19 @@ export class DeliveryController {
   }
 
   async awaitTerminal(rowId: number, timeoutMs = 1500): Promise<DeliveryRow | undefined> {
+    // Poll with exponential backoff (30ms → 50ms → 100ms, capped at 100ms)
+    // so a long timeout (e.g. the doctor's 15s) does not busy-loop 500
+    // times when the worker has not yet claimed the row. The cap keeps
+    // the polling latency under one frame at the upper end.
+    let intervalMs = 30;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const current = this.#requireRuntime();
       current.worker.kick();
       const row = current.outbox.row(rowId);
       if (!row || row.state === "verified" || row.state === "dead") return row;
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      intervalMs = Math.min(intervalMs * 2, 100);
     }
     return this.#requireRuntime().outbox.row(rowId);
   }
