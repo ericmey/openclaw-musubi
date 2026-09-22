@@ -22,6 +22,16 @@ and this project adheres to a calendar-flavored semantic versioning scheme
   entries of 256 chars; one-shot operator log on dead-letter rows;
   cleanup error surfaced in doctor result; `biome.json` schema URL
   bumped to 2.5.7.
+- More code-review hardening, post-2.0.11: dead-letter `last_error`
+  now includes `row=<id>` for `/musubi-status` correlation;
+  `musubi_remember` dead path surfaces partial `object_id` when the
+  row reached `accepted` before failing the readback; multi-target
+  `expectedOwner` invariant asserted in `tools/search.ts` so a future
+  multi-presence build cannot let a second owner slip past the
+  identity-boundary gate; exponential poll backoff (30→50→100ms,
+  capped) in `awaitTerminal` so long waits do not busy-loop;
+  once-per-process deprecation warning suppression with rewritten
+  first-warns-then-quiet test.
 
 ## [2.0.11](https://github.com/ericmey/openclaw-musubi/compare/v2.0.10...v2.0.11) (2026-09-21)
 
