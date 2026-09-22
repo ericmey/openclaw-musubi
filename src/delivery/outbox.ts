@@ -464,6 +464,13 @@ function ownerIsAlive(owner: string | null): boolean {
   if (!owner) return false;
   const pid = Number(owner.split("-", 1)[0]);
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  // On Windows, `process.kill(pid, 0)` semantics differ: signal 0 may
+  // not exist or may misclassify missing pids. The plugin's documented
+  // deployment target is Linux/macOS; on Windows we conservatively report
+  // the owner as alive and let the lease TTL reclaim stale rows, which
+  // is the safe direction (no premature orphan recovery that could
+  // double-write a row under a live owner).
+  if (process.platform === "win32") return true;
   try {
     process.kill(pid, 0);
     return true;

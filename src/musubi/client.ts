@@ -183,7 +183,14 @@ export class MusubiClient {
       return await Promise.race([
         this.#sleep(ms).then(() => false),
         new Promise<boolean>((resolve) => {
-          onAbort = () => resolve(true);
+          // Re-check inside the listener body: `addEventListener` does
+          // not fire for an abort that completed before the listener was
+          // attached, so a race between `signal.aborted` (false) and
+          // `addEventListener("abort", ...)` would otherwise deadlock
+          // the worker until the full backoff sleep elapsed.
+          onAbort = () => {
+            if (signal.aborted) resolve(true);
+          };
           signal.addEventListener("abort", onAbort, { once: true });
         }),
       ]);

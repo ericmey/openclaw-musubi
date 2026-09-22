@@ -314,7 +314,14 @@ function formatResults(rows: readonly DatedRow[]): string {
   lines.push("");
   for (const row of rows) {
     const label = row.title ? `${row.title}` : `${row.namespace}/${row.object_id}`;
-    const when = row.created_at ? row.created_at.slice(0, 10) : "date unavailable";
+    // `created_at` is verified ISO-8601 elsewhere in this file
+    // (`/\d{4}-\d{2}-\d{2}T/`), but the slice assumes the prefix;
+    // fall back to "(date unavailable)" rather than rendering nonsense
+    // if a server drift returns an unexpected shape.
+    const when =
+      typeof row.created_at === "string" && /^\d{4}-\d{2}-\d{2}/u.test(row.created_at)
+        ? row.created_at.slice(0, 10)
+        : "date unavailable";
     lines.push(`[${row.plane}] (${when}) (score ${row.score.toFixed(2)}) ${label}`);
     lines.push(row.content);
     if (row.content_truncated === true) {

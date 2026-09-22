@@ -20,9 +20,9 @@ treats external contributors with the same respect as internal ones.
 ```bash
 git clone git@github.com:ericmey/openclaw-musubi.git
 cd openclaw-musubi
-pnpm install
-pnpm typecheck
-pnpm test
+npm ci
+npm run typecheck
+npm test
 ```
 
 You'll need a reachable Musubi core for anything beyond unit tests. See the

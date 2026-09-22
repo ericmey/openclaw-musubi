@@ -13,9 +13,9 @@ Closes # (or Part of #)
 
 ## Test plan
 
-- [ ] `pnpm typecheck`
-- [ ] `pnpm lint`
-- [ ] `pnpm test`
+- [ ] `npm run typecheck`
+- [ ] `npm run lint`
+- [ ] `npm test`
 - [ ] New tests cover the slice's test contract.
 - [ ] Manual verification (describe):
 

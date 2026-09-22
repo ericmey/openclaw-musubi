@@ -533,10 +533,16 @@ function logCaptureDiagnostic(
   outcome: CaptureDiagnosticOutcome,
 ): void {
   const notable = NOTABLE_CAPTURE_OUTCOMES.has(outcome);
-  if (!notable && !api.logger.debug) return;
-  // `hookRegistered` costs a registry scan, so it is resolved only for the
-  // lines that actually get emitted at operator level.
-  const capture = notable
+  // `enqueue_failed` always emits at operator level (warn), independent
+  // of the notable set: a local enqueue failure must not be silent even
+  // if the operator has only asked about `service_started` and
+  // `session_filtered`.
+  const forceEmit = outcome === "enqueue_failed";
+  if (!notable && !forceEmit && !api.logger.debug) return;
+  // `hookRegistered` is a process-global symbol lookup
+  // (isAgentEndHookRegistered); cheap, but resolved only for the lines
+  // that actually get emitted at operator level.
+  const capture = notable || forceEmit
     ? captureStatus(diagnostics)
     : { ...diagnostics.snapshot(), hookRegistered: undefined };
   const line =
