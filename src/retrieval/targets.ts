@@ -48,6 +48,25 @@ export type RetrieveTarget = {
   readonly expectedOwner: string;
 };
 
+/**
+ * Map plane → API path prefix. Curated and episodic are singular in the
+ * canonical API; concept and artifact are plural. Hard-coded here so the
+ * agent never needs to know the pluralization rule. Used by both ranked
+ * retrieval (via the per-row date enrichment GET in `tools/search.ts`)
+ * and the exact object read (`tools/get.ts`).
+ *
+ * Typed as `Record<string, string>` (rather than the closed union) so
+ * callers indexing by an unknown `row.plane` from a server envelope
+ * still typecheck — the search path guards with `if (!base)` and emits
+ * a warning, never crashing on an unknown plane label.
+ */
+export const PLANE_PATH: Record<string, string> = {
+  curated: "/v1/curated",
+  concept: "/v1/concepts",
+  episodic: "/v1/episodic",
+  artifact: "/v1/artifacts",
+};
+
 export function buildRetrieveTargets(
   presence: PresenceContext,
   planes: readonly string[],

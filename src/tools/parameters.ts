@@ -72,7 +72,10 @@ export const RememberParameters = Type.Object(
   {
     content: Type.String({
       minLength: 1,
-      description: "The thing worth remembering. One fact or observation per call.",
+      description:
+        "The thing worth remembering. One fact or observation per call. " +
+        "Must be ≤ 32768 UTF-8 bytes (Musubi's episodic ceiling); " +
+        "longer content is refused with the byte count so the agent can split it.",
     }),
     importance: Type.Optional(
       Type.Integer({
@@ -83,8 +86,11 @@ export const RememberParameters = Type.Object(
       }),
     ),
     topics: Type.Optional(
-      Type.Array(Type.String(), {
-        description: "Topic tags for later filtering.",
+      Type.Array(Type.String({ maxLength: 256 }), {
+        maxItems: 32,
+        description:
+          "Topic tags for later filtering. Capped at 32 entries of 256 chars " +
+          "each to keep the payload inside Musubi's tag-array limits.",
       }),
     ),
     idempotencyKey: Type.Optional(

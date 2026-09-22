@@ -20,6 +20,8 @@ export type DoctorResult = {
   readonly stages: readonly string[];
   readonly error?: string;
   readonly cleanup: "archived" | "not-created" | "failed";
+  /** Error string from a failed cleanup, when `cleanup === "failed"`. */
+  readonly cleanupError?: string;
 };
 
 /**
@@ -42,6 +44,7 @@ export async function runDeepDoctor(options: {
   const stages: string[] = [];
   let objectId: string | undefined;
   let cleanup: DoctorResult["cleanup"] = "not-created";
+  let cleanupError: string | undefined;
   let failure: string | undefined;
 
   try {
@@ -91,8 +94,9 @@ export async function runDeepDoctor(options: {
           token: presence.token,
         });
         cleanup = "archived";
-      } catch {
+      } catch (error) {
         cleanup = "failed";
+        cleanupError = errorMessage(error);
       }
     }
   }
@@ -107,6 +111,7 @@ export async function runDeepDoctor(options: {
     stages,
     error: failure,
     cleanup,
+    cleanupError,
   };
 }
 
@@ -118,6 +123,7 @@ export function formatDoctor(result: DoctorResult): string {
     `cleanup=${result.cleanup}`,
   ];
   if (result.objectId) lines.push(`object_id=${result.objectId}`);
+  if (result.cleanupError) lines.push(`cleanup_error=${result.cleanupError}`);
   if (result.error) lines.push(`error=${result.error}`);
   return lines.join("\n");
 }

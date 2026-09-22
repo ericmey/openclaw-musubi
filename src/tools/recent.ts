@@ -144,7 +144,20 @@ export function createRecentTool(options: CreateRecentToolOptions): RecentTool {
           // from `.map()` below instead of returning the tool error.
           (response.warnings !== undefined && !Array.isArray(response.warnings))
         ) {
-          return toolError("Musubi recent returned an unexpected envelope; no rows were surfaced.");
+          // Surface the actual shape-mismatch reason so a server contract
+          // drift is recognizable in operator logs ("mode=... results
+          // isArray=... warnings isArray=...") instead of an opaque
+          // "unexpected envelope" line.
+          const reason = [
+            response === null || typeof response !== "object"
+              ? "body not an object"
+              : `mode=${String(response.mode)}`,
+            `results isArray=${Array.isArray(response?.results)}`,
+            `warnings isArray=${Array.isArray(response?.warnings)}`,
+          ].join(" ");
+          return toolError(
+            `Musubi recent returned an unexpected envelope (${reason}); no rows were surfaced.`,
+          );
         }
 
         const warnings = (response.warnings ?? []).map(

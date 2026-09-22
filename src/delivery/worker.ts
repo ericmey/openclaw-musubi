@@ -182,13 +182,24 @@ export class DeliveryWorker {
       }
       const prefix =
         row.attempts > 0 && !row.object_id ? "delivery/receipt lookup failed" : "delivery failed";
+      const retryable = isRetryable(error);
       this.#outbox.markFailed(
         row.id,
         `${prefix}: ${errorMessage(error)}`,
-        isRetryable(error),
+        retryable,
         Date.now(),
         retryAfterMs(error),
       );
+      // A dead-letter (retryable=false) is a terminal state for this row;
+      // a loud one-shot operator log lets the operator correlate the
+      // `dead_recent` count in `/musubi-status` with the offending
+      // payload without diving into SQLite.
+      if (!retryable) {
+        this.#logger.error(
+          `musubi: row ${row.id} dead-lettered (idempotency=${row.idem_key}): ` +
+            `${prefix}: ${errorMessage(error)}`,
+        );
+      }
     }
   }
 

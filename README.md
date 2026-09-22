@@ -103,6 +103,23 @@ same SQLite delivery path as a real turn, waits for canonical GET verification,
 requires semantic retrieval to return that exact object, then soft-archives the
 probe. It never runs automatically.
 
+## Upgrade notes
+
+### From 1.x to 2.x
+
+2.0.0 is a breaking change to the architecture (ADR-0004). On-disk delivery
+state from a 1.x install is **not** safe to reuse as-is: the idempotency-key
+prefix (`openclaw-mirror`) was kept for replay continuity with 1.0.x rows
+that may already exist in a consumer outbox, but the delivery worker, the
+capture shape, and the namespace mapping all changed.
+
+If you are upgrading in place, plan for the new state directory under
+`<stateDir>/musubi/delivery-outbox.sqlite` — starting it fresh is the
+recommended path. If you must reuse the 1.x database, expect rows whose
+content shape no longer matches the canonical `/v1/episodic` body to
+dead-letter after their first retry; inspect with `openclaw musubi-status`
+and prune deliberately.
+
 ## Documentation
 
 - [Architecture overview](./docs/architecture/overview.md)

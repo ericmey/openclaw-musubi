@@ -2,6 +2,7 @@ import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError, NotFoundError } from "../musubi/errors.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
+import { PLANE_PATH } from "../retrieval/targets.js";
 import { GetParameters, type GetParams } from "./parameters.js";
 
 /**
@@ -45,16 +46,9 @@ export type GetTool = {
 };
 
 /**
- * Map plane → API path prefix. Curated and episodic are singular in the
- * canonical API; concept and artifact are plural. Hard-coded here so the
- * agent never needs to know the pluralization rule.
+ * Map plane → API path prefix lives in `retrieval/targets.ts` so the
+ * exact-read tool and ranked retrieval share one source of truth.
  */
-const PLANE_PATH: Record<GetParams["plane"], string> = {
-  curated: "/v1/curated",
-  concept: "/v1/concepts",
-  episodic: "/v1/episodic",
-  artifact: "/v1/artifacts",
-};
 
 /**
  * Mirror the search/recent identity-boundary guard for exact reads.

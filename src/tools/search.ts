@@ -2,7 +2,7 @@ import type { MusubiConfig } from "../config.js";
 import type { MusubiClient } from "../musubi/client.js";
 import { MusubiError } from "../musubi/errors.js";
 import { type PresenceContext, resolvePresence } from "../presence/resolver.js";
-import { buildRetrieveTargets } from "../retrieval/targets.js";
+import { PLANE_PATH, buildRetrieveTargets } from "../retrieval/targets.js";
 import { SearchParameters, type SearchParams } from "./parameters.js";
 
 /**
@@ -60,14 +60,6 @@ const DEFAULT_LIMIT = 10;
  * person believes they lived. Do not lower it on intuition.
  */
 const STRONG_MATCH_MIN_SCORE = 0.6;
-
-/** Same per-plane paths get.ts uses; retrieval carries no date of its own. */
-const PLANE_PATH: Record<string, string> = {
-  curated: "/v1/curated",
-  concept: "/v1/concepts",
-  episodic: "/v1/episodic",
-  artifact: "/v1/artifacts",
-};
 
 type DatedRow = MusubiRetrieveRow & { readonly created_at?: string };
 type DateEnrichment = {
@@ -164,6 +156,7 @@ type MusubiRetrieveRow = {
    * floor above exists to prevent.
    */
   readonly content_truncated?: boolean;
+  /** Server-side slice length in CHARACTERS (UTF-16 code units), not bytes. */
   readonly content_length?: number;
 };
 
