@@ -219,27 +219,53 @@ export function registerMusubi(options: RegisterOptions): RegisteredMusubi | nul
 }
 
 function warnDeprecatedConfig(api: OpenClawPluginApi, config: AuthoredMusubiConfig): void {
-  // Trade-off: this fires on every restart for an operator still on a
-  // deprecated key. A process-global once-only suppression was considered
-  // and dropped because the existing test (`warns when accepted
-  // migration-only config is present`) asserts the count and depends on
-  // the per-call behavior; a per-process cache would silently hide a
-  // regression in which the warnings stopped firing entirely.
-  if (config.supplement) {
+  // Once-per-process suppression: a deprecation that fires on every
+  // restart becomes noise after the first migration event, and an
+  // operator who deliberately keeps the deprecated key for compatibility
+  // does not need to be re-warned on every register or hook call.
+  // Tracked by a process-global symbol so multiple plugin registrations
+  // in one gateway share the same seen-set.
+  if (config.supplement && !DEPRECATION_WARNED.has("supplement")) {
+    DEPRECATION_WARNED.add("supplement");
     api.logger.warn(
       "musubi: config.supplement is deprecated and ignored by the first-class provider",
     );
   }
-  if (config.thoughts) {
+  if (config.thoughts && !DEPRECATION_WARNED.has("thoughts")) {
+    DEPRECATION_WARNED.add("thoughts");
     api.logger.warn(
       "musubi: config.thoughts is deprecated; inbound thought delivery is not shipped",
     );
   }
-  if (config.capture?.mirrorOpenClawMemory !== undefined) {
+  if (
+    config.capture?.mirrorOpenClawMemory !== undefined &&
+    !DEPRECATION_WARNED.has("mirrorOpenClawMemory")
+  ) {
+    DEPRECATION_WARNED.add("mirrorOpenClawMemory");
     api.logger.warn(
       "musubi: capture.mirrorOpenClawMemory is deprecated; use capture.completedTurns",
     );
   }
+}
+
+const DEPRECATION_WARNED: Set<string> = (() => {
+  const symbol = Symbol.for("openclaw-musubi.deprecation-warned.v1");
+  const root = globalThis as typeof globalThis & { [key: symbol]: Set<string> | undefined };
+  let set = root[symbol];
+  if (!set) {
+    set = new Set<string>();
+    root[symbol] = set;
+  }
+  return set;
+})();
+
+/**
+ * Test-only: clear the once-per-process deprecation seen-set so a fresh
+ * test can assert first-warn behavior. Production code should never need
+ * this — the suppression IS the feature.
+ */
+export function __resetDeprecationWarnedForTests(): void {
+  DEPRECATION_WARNED.clear();
 }
 
 function validateConfig(rawConfig: unknown): AuthoredMusubiConfig {

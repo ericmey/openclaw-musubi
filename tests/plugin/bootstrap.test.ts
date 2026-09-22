@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { OpenClawPluginApi } from "../../src/api.js";
 import {
+  __resetDeprecationWarnedForTests,
   registerMusubi,
   translateAgentEndEvent,
   translateAgentEndEventWithReason,
@@ -238,7 +239,21 @@ describe("registerMusubi", () => {
     expect(prompt).toContain("Never invent or infer specifics");
   });
 
-  it("warns when accepted migration-only config is present", () => {
+  it("warns once per process when accepted migration-only config is present, then stays quiet", () => {
+    // Three deprecation keys → three warnings on the FIRST register call
+    // for a given process. Subsequent register calls (a sibling
+    // registration in the same gateway, a service restart within the
+    // same test run, etc.) emit none — operators who keep the
+    // deprecated keys for migration compatibility do not need to be
+    // re-warned every time the plugin boots.
+    //
+    // Earlier tests in this file call `registerMusubi({ api, rawConfig: config() })`,
+    // and `config()` includes `thoughts: { enabled: false }`. Without
+    // resetting the seen-set, that earlier registration would have
+    // already warned about `thoughts` and our 3-key assertion would
+    // see 2.
+    __resetDeprecationWarnedForTests();
+
     const { api, logger } = makeApi();
     registerMusubi({
       api,
@@ -251,6 +266,21 @@ describe("registerMusubi", () => {
     });
     expect(logger.warn).toHaveBeenCalledTimes(3);
     expect(logger.warn.mock.calls.flat().join("\n")).toMatch(/deprecated/u);
+
+    // A second register call in the same process emits nothing: the
+    // deprecation seen-set remembers every key it has already warned
+    // about.
+    const second = makeApi();
+    registerMusubi({
+      api: second.api,
+      rawConfig: {
+        ...config(),
+        supplement: { enabled: true },
+        thoughts: { enabled: true },
+        capture: { mirrorOpenClawMemory: true },
+      },
+    });
+    expect(second.logger.warn).not.toHaveBeenCalled();
   });
 });
 
