@@ -84,6 +84,44 @@ describe("createRememberTool", () => {
     expect(result.content[0]?.text).toContain("401 auth");
   });
 
+  it("test_dead_delivery_surfaces_partial_object_id_when_readback_failed_after_acceptance", async () => {
+    // A row that reached the `accepted` state and only failed on the
+    // canonical readback carries an `object_id` even when `state=dead`.
+    // Surfacing it lets the operator correlate the tool's failure message
+    // with a server-side object (e.g. via `/musubi-status`).
+    const dead = row({
+      state: "dead",
+      object_id: "obj-partial-1",
+      last_error: "readback identity mismatch: content_sha256",
+    });
+    const tool = createRememberTool({
+      delivery: {
+        enqueueExplicit: () => row(),
+        awaitTerminal: async () => dead,
+      },
+    });
+    const result = await tool.definition.execute("call-1", { content: "note" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("obj-partial-1");
+    expect(result.content[0]?.text).toContain("readback identity mismatch");
+  });
+
+  it("test_dead_delivery_without_object_id_does_not_emit_a_partial_hint", async () => {
+    // Negative path: a row that failed before acceptance (e.g. 401) has
+    // no `object_id`. The error message must NOT include a misleading
+    // `partial object_id=undefined` hint.
+    const dead = row({ state: "dead", object_id: null, last_error: "401 auth" });
+    const tool = createRememberTool({
+      delivery: {
+        enqueueExplicit: () => row(),
+        awaitTerminal: async () => dead,
+      },
+    });
+    const result = await tool.definition.execute("call-1", { content: "note" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).not.toMatch(/partial object_id/u);
+  });
+
   it("does not claim a queue write when local persistence fails", async () => {
     const tool = createRememberTool({
       delivery: {

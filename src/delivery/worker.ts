@@ -183,9 +183,13 @@ export class DeliveryWorker {
       const prefix =
         row.attempts > 0 && !row.object_id ? "delivery/receipt lookup failed" : "delivery failed";
       const retryable = isRetryable(error);
+      // Include `row=${row.id}` in the persisted `last_error` so an
+      // operator reading `/musubi-status` can correlate the failure
+      // message back to the row id without cross-referencing timestamps.
+      const detail = `row=${row.id} ${prefix}: ${errorMessage(error)}`;
       this.#outbox.markFailed(
         row.id,
-        `${prefix}: ${errorMessage(error)}`,
+        detail,
         retryable,
         Date.now(),
         retryAfterMs(error),
