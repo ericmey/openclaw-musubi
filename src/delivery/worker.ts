@@ -187,13 +187,7 @@ export class DeliveryWorker {
       // operator reading `/musubi-status` can correlate the failure
       // message back to the row id without cross-referencing timestamps.
       const detail = `row=${row.id} ${prefix}: ${errorMessage(error)}`;
-      this.#outbox.markFailed(
-        row.id,
-        detail,
-        retryable,
-        Date.now(),
-        retryAfterMs(error),
-      );
+      this.#outbox.markFailed(row.id, detail, retryable, Date.now(), retryAfterMs(error));
       // A dead-letter (retryable=false) is a terminal state for this row;
       // a loud one-shot operator log lets the operator correlate the
       // `dead_recent` count in `/musubi-status` with the offending

@@ -219,6 +219,22 @@ export async function executeSearch(
   const seen = new Set<string>();
   const merged: MusubiRetrieveRow[] = [];
   const warnings: string[] = [];
+  // Identity-boundary invariant: every target must agree on `expectedOwner`,
+  // because the row-by-row check below fails closed on the FIRST foreign
+  // owner it sees. Anchoring on `targets[0]?.expectedOwner` would let a
+  // future multi-presence build slip a different owner past the gate,
+  // since targets[1..N] are not consulted. Today the build only ever
+  // returns one target; this asserts the invariant explicitly so the
+  // gate stays correct when buildRetrieveTargets grows.
+  const owners = new Set(targets.map((t) => t.expectedOwner));
+  if (owners.size !== 1) {
+    return toolError(
+      `Musubi identity boundary violation: buildRetrieveTargets returned ` +
+        `targets with conflicting owners (${[...owners].join(", ")}). No ` +
+        `results were surfaced. This is a plugin configuration bug, not a ` +
+        `server response — file an issue.`,
+    );
+  }
   const expectedOwner = targets[0]?.expectedOwner;
   for (const result of settled) {
     if (result.status !== "fulfilled") {

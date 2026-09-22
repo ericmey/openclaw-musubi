@@ -71,9 +71,7 @@ export function createRememberTool(options: CreateRememberToolOptions): Remember
             // `accepted` state and only failed on the canonical readback.
             // Surfacing it lets the operator correlate with
             // `/musubi-status` and with any server-side record.
-            const objectHint = terminal.object_id
-              ? ` partial object_id=${terminal.object_id}`
-              : "";
+            const objectHint = terminal.object_id ? ` partial object_id=${terminal.object_id}` : "";
             return errorResult(
               `Musubi rejected the durable delivery.${objectHint} ` +
                 `Receipt ${terminal.idem_key}; ${terminal.last_error ?? "no error detail"}.`,

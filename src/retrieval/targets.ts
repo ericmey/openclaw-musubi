@@ -73,5 +73,15 @@ export function buildRetrieveTargets(
 ): RetrieveTarget[] {
   const owner = presence.presence.split("/", 1)[0];
   if (!owner) throw new Error(`invalid Musubi presence: ${presence.presence}`);
+  // Single-target today, single-presence by signature: the type allows
+  // for future multi-presence callers, but the identity-boundary check
+  // in `tools/search.ts` anchors on `targets[0]?.expectedOwner`. If a
+  // future change ever returns multiple targets with different owners,
+  // that anchor silently drops every owner after the first. Future
+  // multi-target code paths must therefore assert owner-equality HERE
+  // (fail at registration, not at every retrieval) before that anchor
+  // becomes wrong. Documented here so the next contributor does not
+  // add a second owner without re-reading the boundary contract in
+  // search.ts.
   return [{ namespace: undefined, planes: [...planes], expectedOwner: owner }];
 }
