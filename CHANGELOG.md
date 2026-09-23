@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to a calendar-flavored semantic versioning scheme
 (`YYYY.M.D-betaN` through the pre-1.0 period, standard semver after).
 
+## [2.0.12](https://github.com/ericmey/openclaw-musubi/compare/v2.0.11...v2.0.12) (2026-09-23)
+
+
+### Bug Fixes
+
+* **deps:** pin typebox directly so npm ci accepts the lockfile ([6f6fc8e](https://github.com/ericmey/openclaw-musubi/commit/6f6fc8e254970dc76a4cedc3739e5e2b5f2d5d1e))
+* **p0:** tighten retry merge, console fallback, identity boundaries, and envelope guards ([abb0902](https://github.com/ericmey/openclaw-musubi/commit/abb09028f4c915bd76c39a7e6a6568762c911267))
+* **p1:** Windows lease guard, abort-race hardening, CONTRIBUTING drift, overrides cleanup ([d178184](https://github.com/ericmey/openclaw-musubi/commit/d178184532c4d0ea52c5e23724c9e885da5d2cb2))
+* **p2:** consolidate PLANE_PATH, surface envelope drift details, dead-letter and cleanup logging ([4746230](https://github.com/ericmey/openclaw-musubi/commit/4746230b457c15db7241b56aa1879762ef1f8868))
+* **p3:** schema tightening, factory generic, biome schema bump, pruneVerified docs ([759838d](https://github.com/ericmey/openclaw-musubi/commit/759838d5951b3144f1a9f855f1eb15b6b10e2847))
+* **plugin:** suppress duplicate deprecation warnings within a process ([19fe1d7](https://github.com/ericmey/openclaw-musubi/commit/19fe1d795467fbb4eb54c021a0ab80daf208ce45))
+* **retrieval:** assert multi-target expectedOwner invariant in search.ts ([7841bc7](https://github.com/ericmey/openclaw-musubi/commit/7841bc7066f6503c186bdbd1655d31778bb98e03))
+
 ## [Unreleased]
 
 ### Pending
