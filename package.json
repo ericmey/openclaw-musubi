@@ -47,7 +47,7 @@
     "test:coverage": "npm run build && vitest run --coverage"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.49"
+    "@sinclair/typebox": "0.34.52"
   },
   "peerDependencies": {
     "openclaw": ">=2026.7.1"
@@ -92,7 +92,6 @@
   "overrides": {
     "undici": "8.9.0",
     "fast-uri": "^3.1.8",
-    "hono": "^4.13.8",
-    "@sinclair/typebox": "0.34.52"
+    "hono": "^4.13.8"
   }
 }
