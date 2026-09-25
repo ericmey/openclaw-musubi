@@ -32,8 +32,29 @@ disguised as delivery.
 ## Requirements
 
 - OpenClaw `>= 2026.7.1`
-- Node.js `>= 22.22.3`
+- Node.js `>= 24.16.0 < 25` or `>= 26.1.0` (the package's `engines.node` range)
 - A reachable Musubi core with canonical episodic and retrieval APIs
+
+## Install
+
+On a host with OpenClaw and a reachable Musubi core, install the published
+package and inspect its runtime registration:
+
+```bash
+openclaw plugins install npm:openclaw-musubi
+openclaw plugins inspect musubi --runtime --json
+```
+
+OpenClaw may ask you to review and accept this third-party plugin and its
+capabilities. Check the installed version before relying on a feature described
+in this repository: the npm release can lag the source tree. To inspect the
+published version, run `npm view openclaw-musubi version`.
+
+The plugin takes OpenClaw's exclusive memory slot. Set
+`plugins.slots.memory` and the plugin entry as shown below, then reload or
+restart OpenClaw and run `openclaw musubi-status`. A successful install alone
+does not prove that the Musubi core is reachable or that a token has the right
+namespace scope.
 
 ## Configuration
 
@@ -48,6 +69,7 @@ placeholders are rejected locally before the provider registers.
     "entries": {
       "musubi": {
         "enabled": true,
+        "hooks": { "allowConversationAccess": true },
         "config": {
           "core": {
             "baseUrl": "https://musubi.example.internal",
@@ -78,6 +100,12 @@ placeholders are rejected locally before the provider registers.
   }
 }
 ```
+
+Completed-turn capture uses the `agent_end` hook. OpenClaw registers that
+hook only when this entry sets `hooks.allowConversationAccess` to `true`;
+without it, the plugin can load while capturing no completed turns. This
+grants the hook access to conversation content, so enable it only when you
+intend to capture turns into Musubi.
 
 ## Verify the live contract
 
