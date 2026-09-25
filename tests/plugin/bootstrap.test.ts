@@ -198,6 +198,24 @@ describe("registerMusubi", () => {
     ]);
   });
 
+  it("materializes provider-neutral memory aliases under their registered names", () => {
+    const { api, events } = makeApi();
+    registerMusubi({ api, rawConfig: config() });
+
+    for (const name of ["memory_search", "memory_get", "memory_store"]) {
+      const registration = events.find(
+        (event): event is Extract<Event, { kind: "tool" }> =>
+          event.kind === "tool" &&
+          (event.options as { names?: string[] }).names?.includes(name) === true,
+      );
+      expect(registration, `${name} must be registered`).toBeDefined();
+      const tool = (registration!.value as (ctx: { agentId?: string }) => { name: string })({
+        agentId: "aoi",
+      });
+      expect(tool.name).toBe(name);
+    }
+  });
+
   it("fails synchronously before registration when config is invalid", () => {
     const { api, events } = makeApi();
     expect(() =>

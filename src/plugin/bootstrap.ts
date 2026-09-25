@@ -345,18 +345,18 @@ function registerTools(
   ) => {
     const toolFactory = (ctx: { agentId?: string }) => {
       const definition = create(ctx).definition;
-      // The factory parameter `name` is authoritative: every create*Tool
-      // function hard-codes its own name in `definition.name`, so we
-      // assert they agree and then forward the registration `name` (no
-      // need to re-bind `name` / `label` on the returned object).
-      if (definition.name !== name) {
+      // Alias factories reuse the canonical tool's implementation. Check the
+      // source name before rebinding it to the name OpenClaw registers.
+      const expectedName = aliasOf ?? name;
+      if (definition.name !== expectedName) {
         throw new Error(
           `musubi: tool factory name mismatch (registered as "${name}", ` +
-            `definition declares "${definition.name}")`,
+            `expected "${expectedName}", definition declares "${definition.name}")`,
         );
       }
       return {
         ...definition,
+        name,
         description: aliasOf
           ? `${definition.description} ${aliasNote(name, aliasOf)}`
           : definition.description,
