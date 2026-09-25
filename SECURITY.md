@@ -4,7 +4,7 @@
 
 Please **do not** open a public issue for security vulnerabilities.
 
-Instead, email **eric.mey@salesai.com** with:
+Instead, email **eric@sourceblender.com** with:
 
 - A description of the issue.
 - Steps to reproduce, including plugin version, OpenClaw version, and Musubi
@@ -21,7 +21,7 @@ In scope:
 
 - The `openclaw-musubi` plugin code in this repository.
 - Its configuration schema and any secrets it handles (tokens, namespaces).
-- The SSE consumer and HTTP client behavior against a Musubi core.
+- The HTTP client and delivery behavior against a Musubi core.
 
 Out of scope (report upstream):
 
@@ -41,8 +41,9 @@ grants read/write access to the presence it was issued for.
   plaintext on disk beyond what OpenClaw already does.
 - Tokens are never logged, even at debug level. A violation of this rule is a
   security bug and in-scope for this policy.
-- `${ENV_VAR}` substitution is supported so tokens can live in a secret
-  manager rather than `openclaw.json`.
+- Use OpenClaw's structured `SecretRef` objects for tokens held in a secret
+  manager. Literal `${ENV_VAR}` token placeholders are rejected before the
+  provider registers.
 
 ## Disclosure
 
