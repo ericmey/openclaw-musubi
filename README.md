@@ -38,11 +38,10 @@ disguised as delivery.
 ## Install
 
 On a host with OpenClaw and a reachable Musubi core, install the published
-package and inspect its runtime registration:
+package:
 
 ```bash
 openclaw plugins install npm:openclaw-musubi
-openclaw plugins inspect musubi --runtime --json
 ```
 
 OpenClaw may ask you to review and accept this third-party plugin and its
@@ -106,6 +105,14 @@ hook only when this entry sets `hooks.allowConversationAccess` to `true`;
 without it, the plugin can load while capturing no completed turns. This
 grants the hook access to conversation content, so enable it only when you
 intend to capture turns into Musubi.
+
+After saving the configuration, reload or restart OpenClaw. Then inspect the
+registered plugin and check its connection to Musubi:
+
+```bash
+openclaw plugins inspect musubi --runtime --json
+openclaw musubi-status
+```
 
 ## Verify the live contract
 
